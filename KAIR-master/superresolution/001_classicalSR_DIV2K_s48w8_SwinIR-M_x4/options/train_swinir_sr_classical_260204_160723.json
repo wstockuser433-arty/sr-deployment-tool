@@ -1,0 +1,120 @@
+{
+  "task": "001_classicalSR_DIV2K_s48w8_SwinIR-M_x4",
+  "model": "plain",
+  "gpu_ids": [
+    0
+  ],
+  "dist": false,
+  "scale": 4,
+  "n_channels": 3,
+  "path": {
+    "root": "superresolution",
+    "pretrained_netG": "superresolution\\001_classicalSR_DIV2K_s48w8_SwinIR-M_x4\\models\\20000_G.pth",
+    "pretrained_netE": "superresolution\\001_classicalSR_DIV2K_s48w8_SwinIR-M_x4\\models\\20000_E.pth",
+    "task": "superresolution\\001_classicalSR_DIV2K_s48w8_SwinIR-M_x4",
+    "log": "superresolution\\001_classicalSR_DIV2K_s48w8_SwinIR-M_x4",
+    "options": "superresolution\\001_classicalSR_DIV2K_s48w8_SwinIR-M_x4\\options",
+    "models": "superresolution\\001_classicalSR_DIV2K_s48w8_SwinIR-M_x4\\models",
+    "images": "superresolution\\001_classicalSR_DIV2K_s48w8_SwinIR-M_x4\\images",
+    "pretrained_optimizerG": "superresolution\\001_classicalSR_DIV2K_s48w8_SwinIR-M_x4\\models\\20000_optimizerG.pth"
+  },
+  "datasets": {
+    "train": {
+      "name": "train_dataset",
+      "dataset_type": "sr",
+      "dataroot_H": "trainsets/NWPU_RESIC45/HR_flat/train",
+      "dataroot_L": "trainsets/NWPU_RESIC45/LR_flat/x4/train",
+      "H_size": 192,
+      "dataloader_shuffle": true,
+      "dataloader_num_workers": 8,
+      "dataloader_batch_size": 16,
+      "phase": "train",
+      "scale": 4,
+      "n_channels": 3
+    },
+    "test": {
+      "name": "test_dataset",
+      "dataset_type": "sr",
+      "dataroot_H": "testsets/NWPU_RESIC45/HR_flat/test",
+      "dataroot_L": "testsets/NWPU_RESIC45/LR_flat/x4/test",
+      "phase": "test",
+      "scale": 4,
+      "n_channels": 3
+    }
+  },
+  "netG": {
+    "net_type": "swinir",
+    "upscale": 4,
+    "in_chans": 3,
+    "img_size": 48,
+    "window_size": 8,
+    "img_range": 1.0,
+    "depths": [
+      6,
+      6,
+      6,
+      6,
+      6,
+      6
+    ],
+    "embed_dim": 180,
+    "num_heads": [
+      6,
+      6,
+      6,
+      6,
+      6,
+      6
+    ],
+    "mlp_ratio": 2,
+    "upsampler": "pixelshuffle",
+    "resi_connection": "1conv",
+    "init_type": "default",
+    "scale": 4
+  },
+  "train": {
+    "G_lossfn_type": "l1",
+    "G_lossfn_weight": 1.0,
+    "E_decay": 0.999,
+    "G_optimizer_type": "adam",
+    "G_optimizer_lr": 0.0002,
+    "G_optimizer_wd": 0,
+    "G_optimizer_clipgrad": null,
+    "G_optimizer_reuse": true,
+    "G_scheduler_type": "MultiStepLR",
+    "G_scheduler_milestones": [
+      100000,
+      125000,
+      150000,
+      175000,
+      200000
+    ],
+    "G_scheduler_gamma": 0.5,
+    "G_regularizer_orthstep": null,
+    "G_regularizer_clipstep": null,
+    "G_param_strict": true,
+    "E_param_strict": true,
+    "checkpoint_test": 5000,
+    "checkpoint_save": 5000,
+    "checkpoint_print": 200,
+    "F_feature_layer": 34,
+    "F_weights": 1.0,
+    "F_lossfn_type": "l1",
+    "F_use_input_norm": true,
+    "F_use_range_norm": false,
+    "G_optimizer_betas": [
+      0.9,
+      0.999
+    ],
+    "G_scheduler_restart_weights": 1
+  },
+  "opt_path": "options/swinir/train_swinir_sr_classical.json",
+  "is_train": true,
+  "merge_bn": false,
+  "merge_bn_startpoint": -1,
+  "find_unused_parameters": false,
+  "use_static_graph": false,
+  "num_gpu": 1,
+  "rank": 0,
+  "world_size": 1
+}

@@ -1,0 +1,29 @@
+(mlbase) hassan@net-5842U-10:~/Documents/Hassan/AI/fast_superresolution/KAIR/my_cust_scripts$ python verify_file_hash.py
+
+--- Processing: lr_dataset_l2a.zip ---
+/home/hassan/Documents/Hassan/SR Enhancement Work/Datasets/WorldStrat/worldstrat_datafolder/lr_dataset_l2a.zip
+Reading file: /home/hassan/Documents/Hassan/SR Enhancement Work/Datasets/WorldStrat/worldstrat_datafolder/lr_dataset_l2a.zip (23.74 GB)
+Calculated: e109e96b8d10571e0cbce2778ad036f6
+Expected:   7aa1878a37d22a6c7c4b84b022a14ad7
+Status: MISMATCH
+
+--- Processing: hr_dataset.zip ---
+/home/hassan/Documents/Hassan/SR Enhancement Work/Datasets/WorldStrat/worldstrat_datafolder/hr_dataset.zip
+Reading file: /home/hassan/Documents/Hassan/SR Enhancement Work/Datasets/WorldStrat/worldstrat_datafolder/hr_dataset.zip (38.03 GB)
+Calculated: 7a481d7bc7f8a7aea7773891d866d44b
+Expected:   Unknown
+Status: MISMATCH
+
+--- Processing: lr_dataset_l2a_old.zip ---
+/home/hassan/Documents/Hassan/SR Enhancement Work/Datasets/WorldStrat/worldstrat_datafolder/lr_dataset_l2a_old.zip
+Reading file: /home/hassan/Documents/Hassan/SR Enhancement Work/Datasets/WorldStrat/worldstrat_datafolder/lr_dataset_l2a_old.zip (23.74 GB)
+Calculated: 68a55f86169479ac4bf164dd31810169
+Expected:   Unknown
+Status: MISMATCH
+
+--- Processing: lr_dataset_l1c.zip ---
+/home/hassan/Documents/Hassan/SR Enhancement Work/Datasets/WorldStrat/worldstrat_datafolder/lr_dataset_l1c.zip
+Reading file: /home/hassan/Documents/Hassan/SR Enhancement Work/Datasets/WorldStrat/worldstrat_datafolder/lr_dataset_l1c.zip (24.56 GB)
+Calculated: e90ecfa4bf838ace0b51dea1031b5ed1
+Expected:   Unknown
+Status: MISMATCH

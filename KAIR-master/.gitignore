@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Node / frontend
+gui/frontend/node_modules/
+gui/frontend/dist/
+gui/frontend/.vite/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Large data / satellite imagery
+*.tif
+*.tiff
+*.jp2
+*.img
+*.hdr
+*.aux.xml
+
+# Datasets (train & test sets)
+trainsets/
+testsets/
+
+# Pipeline outputs
+output_patches/
+*_test/
+_previews/
+
+# Trained model checkpoints (train logs/options are tracked, weights are not)
+superresolution/*/models/
+
+# PowerPoint files + Office lock files
+*.ppt
+*.pptx
+~$*
+
+# Claude Code
+.claude/settings.local.json
+
+# Misc
+*.log
+*.tmp
+tmp/
+
+#model_zoo
+model_zoo/

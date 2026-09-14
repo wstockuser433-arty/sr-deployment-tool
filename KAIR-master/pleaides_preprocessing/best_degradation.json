@@ -1,0 +1,47 @@
+{
+  "degradation_params": {
+    "blur_prob_1": 0.7296779889313451,
+    "resize_prob_1": 0.9949068066425988,
+    "gaussian_noise_prob_1": 0.16864115118563164,
+    "poisson_noise_prob_1": 0.34854000968807214,
+    "noise_level1_s1": 1,
+    "noise_level2_s1": 5,
+    "blur_prob_2": 0.29539840736770095,
+    "resize_prob_2": 0.20747919570963952,
+    "gaussian_noise_prob_2": 0.22116116712501627,
+    "poisson_noise_prob_2": 0.06772084616446661,
+    "noise_level1_s2": 2,
+    "noise_level2_s2": 4,
+    "resize_back_prob": 0.22608057335188936,
+    "sf": 2
+  },
+  "meta": {
+    "composite_score": 0.563197,
+    "metrics": {
+      "psnr": 19.937511,
+      "ssim": 0.681123,
+      "sam": 6.862633,
+      "uiqi": 0.864666,
+      "fsim": 0.824401,
+      "rmse": 26.809305,
+      "it_ssim": 0.681123,
+      "srer": 11.164062
+    },
+    "n_trials": 200,
+    "n_pairs": 2529,
+    "hr_dir": "Lahore_3/hr",
+    "lr_dir": "Lahore_3/lr",
+    "sf": 2,
+    "timestamp": "2026-04-24T12:41:35.348927",
+    "metric_weights": {
+      "psnr": 0.2,
+      "ssim": 0.2,
+      "sam": 0.15,
+      "uiqi": 0.1,
+      "fsim": 0.15,
+      "rmse": 0.1,
+      "it_ssim": 0.05,
+      "srer": 0.05
+    }
+  }
+}

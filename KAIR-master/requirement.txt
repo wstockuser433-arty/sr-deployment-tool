@@ -1,0 +1,37 @@
+# PyTorch — install separately with the correct CUDA version from https://pytorch.org/get-started/locally/
+# e.g.: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+torch
+torchvision
+
+# Core scientific stack
+numpy
+scipy
+matplotlib
+
+# Image processing
+opencv-python
+Pillow
+scikit-image
+albumentations
+
+# Model components
+timm
+
+# Metrics
+piq
+
+# Satellite data
+rasterio
+
+# Degradation learning
+optuna
+
+# Utilities
+tqdm
+
+# Not for SR (can be removed)
+hdf5storag
+lmdb
+ninja
+requests
+einops

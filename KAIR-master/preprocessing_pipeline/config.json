@@ -1,0 +1,145 @@
+{
+  //  Usage:
+  //    python preprocessing_pipeline/run_pipeline.py --config preprocessing_pipeline/config.json
+  // =====================================================================
+
+  "task": "preprocess_sr_x2"                // task name (used for logging)
+
+  // -----------------------------------------------------------------
+  //  Pipeline settings
+  // -----------------------------------------------------------------
+  , "pipeline_mode": "hr_only"              // "hr_only" (HR→preprocess→degrade→LR) | "hr_lr_pair" (preprocess both HR+LR, no degradation)
+  , "degradation_type": "satellite"            // "bsrgan" | "real_esrgan" | "bsrgan_plus" | "satellite" (only used in hr_only mode)
+  , "scale": 2                              // integer downscale factor: 2 | 3 | 4 | 8
+  , "n_channels": 3                         // 1 for grayscale, 3 for RGB
+  , "seed": 42                              // random seed (null for random)
+  , "num_workers": 1                        // parallel workers for image processing
+
+  // -----------------------------------------------------------------
+  //  Paths
+  // -----------------------------------------------------------------
+  , "input_hr_dir": "testsets/UCMerced_LandUse/HR"          // source directory of HR images
+  , "input_lr_dir": null                    // source directory of LR images (only for hr_lr_pair mode, null otherwise)
+  , "output_hr_dir": "testsets/UCMerced_LandUse/HR_processed" // where to save processed HR images
+  , "output_lr_dir": "testsets/UCMerced_LandUse/LR_flat_x2" // where to save processed/degraded LR images
+  , "supported_extensions": [".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"]
+
+  // -----------------------------------------------------------------
+  //  Output settings
+  // -----------------------------------------------------------------
+  , "save_format": "png"                    // "png" | "tif" | "jpg"
+  , "save_hr_copy": true                    // save the mod-cropped HR alongside LR
+
+  // -----------------------------------------------------------------
+  //  Preprocessing: Normalization
+  // -----------------------------------------------------------------
+  , "normalize_enabled": false              // enable percentile normalization
+  , "normalize_low_percentile": 2           // lower percentile for clipping
+  , "normalize_high_percentile": 98         // upper percentile for clipping
+
+  // -----------------------------------------------------------------
+  //  Preprocessing: Sentinel-2 Cloud Masking  (requires s2cloudless)
+  // -----------------------------------------------------------------
+  , "cloud_mask_enabled": false             // enable s2cloudless cloud masking
+  , "cloud_mask_threshold": 0.4             // cloud probability threshold (higher = stricter)
+  , "cloud_mask_average_over": 4            // smoothing window
+  , "cloud_mask_dilation_size": 2           // dilation pixels
+  , "cloud_mask_nodata": 0.0               // value for masked (cloudy) pixels
+  , "cloud_mask_auto_scale": true           // auto-divide by 10000 for raw S2 data
+
+  // =================================================================
+  //  Degradation: BSRGAN
+  //  (active when degradation_type == "bsrgan")
+  // =================================================================
+  , "bsrgan": {
+    "jpeg_prob": 0.9                        // probability of JPEG noise in shuffle
+    , "scale2_prob": 0.25                   // probability of x2 pre-downsampling (sf==4 only)
+    , "isp_prob": 0.25                      // probability of ISP camera-sensor noise
+    , "noise_level1": 2                     // lower Gaussian noise level bound (/255)
+    , "noise_level2": 25                    // upper Gaussian noise level bound (/255)
+  }
+
+  // =================================================================
+  //  Degradation: Real-ESRGAN
+  //  (active when degradation_type == "real_esrgan")
+  // =================================================================
+  , "real_esrgan": {
+    // ---- Stage 1 ----
+    "blur_prob_1": 1.0                      // probability of blur in stage 1
+    , "resize_prob_1": 1.0                  // probability of random resize in stage 1
+    , "gaussian_noise_prob_1": 0.5          // probability of Gaussian noise in stage 1
+    , "poisson_noise_prob_1": 0.1           // probability of Poisson noise in stage 1
+    , "speckle_noise_prob_1": 0.1           // probability of speckle noise in stage 1
+    , "jpeg_prob_1": 0.9                    // probability of JPEG compression in stage 1
+    , "noise_level1_s1": 2                  // lower Gaussian noise level for stage 1
+    , "noise_level2_s1": 25                 // upper Gaussian noise level for stage 1
+
+    // ---- Stage 2 ----
+    , "blur_prob_2": 0.8                    // probability of blur in stage 2
+    , "resize_prob_2": 1.0                  // probability of random resize in stage 2
+    , "gaussian_noise_prob_2": 0.5          // probability of Gaussian noise in stage 2
+    , "poisson_noise_prob_2": 0.1           // probability of Poisson noise in stage 2
+    , "speckle_noise_prob_2": 0.1           // probability of speckle noise in stage 2
+    , "jpeg_prob_2": 0.8                    // probability of JPEG compression in stage 2
+    , "noise_level1_s2": 2                  // lower Gaussian noise level for stage 2
+    , "noise_level2_s2": 15                 // upper Gaussian noise level for stage 2
+
+    // ---- Final ----
+    , "final_jpeg_prob": 0.5                // probability of final JPEG pass
+    , "resize_back_prob": 0.5               // probability of intermediate resize-back between stages
+    , "isp_prob": 0.1                       // probability of ISP noise model
+  }
+
+  // =================================================================
+  //  Degradation: BSRGAN-Plus (Combined)
+  //  (active when degradation_type == "bsrgan_plus")
+  // =================================================================
+  , "bsrgan_plus": {
+    "shuffle_prob": 0.5                     // probability of fully randomising the 13-step order
+    , "use_sharp": false                    // apply USM sharpening to HR before degradation
+    , "sharpening_weight": 0.5              // USM residual weight
+    , "sharpening_radius": 50               // USM Gaussian blur radius (must be odd)
+    , "sharpening_threshold": 10            // USM pixel-difference threshold (0-255)
+    , "poisson_prob": 0.1                   // per-slot Poisson noise probability
+    , "speckle_prob": 0.1                   // per-slot speckle noise probability
+    , "isp_prob": 0.1                       // per-slot ISP noise probability
+    , "noise_level1": 2                     // lower Gaussian noise level bound (/255)
+    , "noise_level2": 25                    // upper Gaussian noise level bound (/255)
+  }
+
+  // =================================================================
+  //  Degradation: Satellite-Optimized
+  //  (active when degradation_type == "satellite")
+  // =================================================================
+  , "satellite": {
+    // ---- Stage 1 (sensor-level) ----
+    "blur_prob_1": 1.0                      // probability of blur in stage 1
+    , "blur_type_1": "mtf"                  // "mtf" (recommended) or "anisotropic"
+    , "resize_prob_1": 0.75                 // probability of random resize in stage 1
+    , "poisson_prob_1": 0.75                // shot noise (dominant in satellite)
+    , "read_noise_prob_1": 0.55             // thermal/read noise probability
+    , "haze_prob_1": 0.45                   // atmospheric haze probability
+    , "jpeg_prob_1": 0.12                   // very low (most satellite data lossless)
+
+    // ---- Stage 2 (transmission/processing) ----
+    , "blur_prob_2": 0.92                   // probability of blur in stage 2
+    , "blur_type_2": "mtf"                  // "mtf" or "anisotropic"
+    , "resize_prob_2": 0.70                 // probability of random resize in stage 2
+    , "poisson_prob_2": 0.60                // shot noise in stage 2
+    , "read_noise_prob_2": 0.45             // read noise in stage 2
+    , "haze_prob_2": 0.35                   // atmospheric haze in stage 2
+    , "jpeg_prob_2": 0.08                   // JPEG probability in stage 2
+
+    // ---- Final ----
+    , "final_jpeg_prob": 0.10               // probability of final JPEG pass
+    , "resize_back_prob": 0.35              // simulate GSD / zoom mismatch
+    , "isp_prob": 0.08                      // ISP noise probability
+
+    // ---- Noise & MTF ranges ----
+    , "noise_level1": 0.8                   // lower Gaussian noise bound (lower than consumer)
+    , "noise_level2": 5.0                  // upper Gaussian noise bound
+    , "mtf_sigma_optics_range": [0.8, 2.8]  // optics sigma range for MTF/PSF
+    , "mtf_detector_width_range": [0.7, 1.8] // detector width range
+    , "mtf_atm_sigma_range": [0.4, 1.8]     // atmospheric turbulence sigma range
+  }
+}

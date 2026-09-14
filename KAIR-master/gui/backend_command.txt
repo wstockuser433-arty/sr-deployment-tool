@@ -1,0 +1,8 @@
+For correct buffering of 4sec health check display log in terminal use the -u flag for unbuffered
+
+cd /home/hassan/Documents/Hassan/AI/fast_superresolution/sr-deploy-tool/KAIR-master
+python -u -m uvicorn gui.backend.main:app --host 127.0.0.1 --port 8000 --reload
+
+cd /home/hassan/Documents/Hassan/AI/fast_superresolution/sr-deploy-tool/KAIR-master/gui/frontend
+npm run dev
+
