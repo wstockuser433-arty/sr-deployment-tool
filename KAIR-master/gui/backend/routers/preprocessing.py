@@ -7,6 +7,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import random
 import shutil
 import subprocess as _subprocess_mod
@@ -45,6 +46,62 @@ def _find_pipeline_python() -> str:
 
 PIPELINE_PYTHON: str = _find_pipeline_python()
 
+# ── Progress / summary parsing ────────────────────────────────────────────────
+
+# Total candidate count — "Starting patch extraction: 4624 candidate windows"
+_TOTAL_CANDIDATES_RE = re.compile(
+    r'Starting\s+patch\s+extraction[:\s]+(\d+)\s+candidate',
+    re.IGNORECASE,
+)
+
+# Per-patch discards — "Patch (0,0) discarded" / "Patch (12,34) discarded"
+_DISCARD_RE = re.compile(
+    r'Patch\s*\((\d+)\s*,\s*(\d+)\)\s+discarded',
+    re.IGNORECASE,
+)
+
+# Preview checkpoint — "PREVIEW_READY <file> <stage> <scene>"
+_PREVIEW_RE = re.compile(r'PREVIEW_READY\s+(\S+)\s+(\S+)\s+(\S+)')
+
+# Class start (multi-class pipeline B)
+_CLASS_START_RE = re.compile(r'\[CLASS_START\]\s+(\S+)')
+_CLASS_DONE_RE  = re.compile(r'\[CLASS_DONE\]')
+
+# Progress percent — only when it appears in a clean "%"-suffixed number.
+# We deliberately require a "digit %" pattern with no other digits nearby, so
+# the radiometric line "(85.0 %)" does NOT accidentally match once we're past
+# the patch extraction stage (its stage is not a progressive one).
+_PCT_RE = re.compile(r'(?:^|\s)(\d{1,3}(?:\.\d+)?)\s*%')
+
+# Stage detection — ordered, first match wins. Patterns chosen against real
+# log lines seen in pipeline3.py. Case-insensitive everywhere.
+_STAGE_PATTERNS = [
+    # Explicit "Stage A/B/C" module headers first — most specific
+    (re.compile(r'(?i)===\s*MODULE\s+3\s+—\s+Stage\s+A', ), 'stage a'),
+    (re.compile(r'(?i)===\s*MODULE\s+3\s+—\s+Stage\s+B', ), 'stage b'),
+    (re.compile(r'(?i)===\s*MODULE\s+3\s+—\s+Stage\s+C', ), 'stage c'),
+    (re.compile(r'(?i)\bStage\s+A\b'),                       'stage a'),
+    (re.compile(r'(?i)\bStage\s+B\b'),                       'stage b'),
+    (re.compile(r'(?i)\bStage\s+C\b'),                       'stage c'),
+    # Radiometric cluster
+    (re.compile(r'(?i)Radiometric\s+regression'),            'radiometric'),
+    (re.compile(r'(?i)histogram[- ]match\s+LUT'),            'histogram'),
+    # Percentile normalisation
+    (re.compile(r'(?i)Percentile\s+thresholds'),             'normalize'),
+    # Patch extraction — must come BEFORE generic "patch"
+    (re.compile(r'(?i)Starting\s+patch\s+extraction'),       'patch'),
+    (re.compile(r'(?i)\bPatch\s*\(\d+\s*,\s*\d+\)\s+discarded'), 'patch'),
+    # Scene load
+    (re.compile(r'(?i)=== Processing\s+'),                   'load'),
+    (re.compile(r'(?i)Decimated overview'),                  'decimate'),
+    # Pipeline B — cloud mask / normalize / degradation / save / split
+    (re.compile(r'(?i)\bcloud\s+mask'),                      'cloud'),
+    (re.compile(r'(?i)\bdegradation\b'),                     'degradation'),
+    (re.compile(r'(?i)\bsaving\b|\bwrit(?:ing|ten)\b'),      'save'),
+    (re.compile(r'(?i)\bsplit'),                             'split'),
+    # Terminal
+    (re.compile(r'(?i)\bPipeline\s+complete\b|\ball\s+scenes\s+processed\b'), 'done'),
+]
 
 # ── Train/Test split helper ────────────────────────────────────────────────────
 
@@ -508,3 +565,170 @@ def resume_job(job_id: str):
     if not job_manager.resume_job(job_id):
         raise HTTPException(status_code=400, detail="Job not paused or not found")
     return {"status": "running", "job_id": job_id}
+
+
+@router.get("/progress/{job_id}")
+def get_preprocessing_progress(job_id: str):
+    """
+    Minimal structured progress for a running preprocessing job.
+
+    Because pipeline3.py emits almost no per-patch progress and its log is
+    dominated by GDAL/rasterio DEBUG chatter, we:
+      - only look at non-DEBUG lines (skip_debug=True)
+      - treat the "Starting patch extraction: N candidate windows" line as
+        the authoritative total
+      - use "Patch (r,c) discarded" lines as a coarse progress heartbeat
+        (they are emitted as the extractor walks the grid row-major)
+      - fall back to stage-based percentage milestones between stages
+    """
+    job = job_manager.get_job(job_id)
+    summary = job_manager.get_job_summary(job_id) or {}
+
+    if job is None:
+        return {
+            "job_id": job_id, "status": "unknown", "stage": None,
+            "current": 0, "total": 0, "percent": None,
+            "classes_done": 0, "classes_total": 0,
+            "output_dir": None, "last_line": "",
+        }
+
+    status = summary.get("status", "unknown")
+
+    # Skip DEBUG lines — critical for preprocessing where rasterio dominates
+    lines = job_manager.get_recent_lines(job_id, max_lines=400, skip_debug=True)
+
+    total = 0
+    discarded = 0
+    last_patch_rc = None
+    stage = None
+    last_line = ""
+    classes_done = 0
+    classes_seen = set()
+
+    for raw in lines:
+        line = raw.rstrip("\n")
+        if not line.strip():
+            continue
+        last_line = line
+
+        mt = _TOTAL_CANDIDATES_RE.search(line)
+        if mt:
+            try:
+                total = int(mt.group(1))
+            except ValueError:
+                pass
+
+        md = _DISCARD_RE.search(line)
+        if md:
+            discarded += 1
+            try:
+                last_patch_rc = (int(md.group(1)), int(md.group(2)))
+            except ValueError:
+                pass
+
+        # Stage — first matching pattern wins per line.
+        # Because we scan top-to-bottom and let later lines overwrite `stage`,
+        # the most recent stage in the window is what ends up in the response.
+        for pat, name in _STAGE_PATTERNS:
+            if pat.search(line):
+                stage = name
+                break
+
+        if _CLASS_DONE_RE.search(line):
+            classes_done += 1
+        mc = _CLASS_START_RE.search(line)
+        if mc:
+            classes_seen.add(mc.group(1))
+
+    # ---- Resolve a percentage ------------------------------------------------
+    pct = None
+
+    if total > 0 and last_patch_rc is not None:
+        # We know the total candidate count and we know which (row, col)
+        # the extractor is currently at. Convert to a 1-D index using the
+        # grid geometry from the same "Starting patch extraction" line.
+        # Default to square grid (pipeline3.py uses stride==patch size here).
+        # Coarse approximation is fine — the bar is a progress hint.
+        #
+        # Note: discarded patches are a subset of visited patches, so this
+        # UNDER-counts. That is intentional — we don't want to overshoot.
+        # We also don't know the stride-based grid extent without parsing it,
+        # so we cap the contribution from a single (r,c) at a modest value.
+        try:
+            r, c = last_patch_rc
+            # crude: assume the total is a square grid
+            import math
+            side = max(1, int(round(math.sqrt(total))))
+            visited = min(total, r * side + c)
+            if visited > 0:
+                pct = round(100.0 * visited / total, 1)
+        except Exception:
+            pct = None
+
+    if pct is None:
+        # Fall back to stage-based milestones. These percentages are chosen
+        # from the real timing observed in pipeline3.py logs: stages A/B/C
+        # and radiometric take ~60% of wall-clock time, patch extraction the
+        # rest.
+        stage_pct = {
+            'load':         2.0,
+            'decimate':     5.0,
+            'stage a':     15.0,
+            'stage b':     30.0,
+            'stage c':     45.0,
+            'radiometric': 55.0,
+            'histogram':   62.0,
+            'cloud':       20.0,
+            'normalize':   30.0,
+            'degradation': 60.0,
+            'patch':       70.0,
+            'save':        92.0,
+            'split':       96.0,
+            'done':       100.0,
+        }
+        pct = stage_pct.get(stage)
+
+    return {
+        "job_id": job_id,
+        "status": status,
+        "stage": stage,
+        "current": discarded,           # number of discard events seen
+        "total": total,                 # candidate window count
+        "percent": pct,
+        "classes_done": classes_done,
+        "classes_total": len(classes_seen),
+        "output_dir": summary.get("output_dir")
+                      or (summary.get("meta") or {}).get("output_dir"),
+        "last_line": last_line,
+    }
+
+
+@router.get("/preprocessing-summary")
+def preprocessing_summary(
+    width: int,
+    height: int,
+    hr_patch_size: int,
+    stride: int,
+):
+    """
+    Estimate the number of patches pipeline3.py will extract for an HR image
+    of the given dimensions with the given patch size and stride, before
+    quality filters trim the count.
+    """
+    if width < hr_patch_size or height < hr_patch_size:
+        return {
+            "input_width": width, "input_height": height,
+            "patch_size": hr_patch_size, "stride": stride,
+            "patches_x": 0, "patches_y": 0, "total_patches": 0,
+        }
+    n_x = (width  - hr_patch_size) // stride + 1
+    n_y = (height - hr_patch_size) // stride + 1
+    return {
+        "input_width": width,
+        "input_height": height,
+        "patch_size": hr_patch_size,
+        "stride": stride,
+        "patches_x": n_x,
+        "patches_y": n_y,
+        "total_patches": n_x * n_y,
+    }

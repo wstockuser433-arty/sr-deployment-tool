@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { getInferenceProgress } from '../api/client'
-
+// Persists job start timestamps across component remounts.
+// Keyed by jobId; entries are pruned lazily when a job reaches terminal state.
+const _START_TIMES = new Map()
 
 /**
  * src/components/InlineJobPanel.jsx
@@ -32,22 +34,39 @@ export default function InlineJobPanel({
   runningLabel = 'Running',            // ← NEW: default 'Running' for inference
 }) {
   const [progress, setProgress] = useState(null)
+  
   const [elapsed, setElapsed] = useState(0)
-  const startedAtRef = useRef(null)
   const pollRef = useRef(null)
   const tickRef = useRef(null)
 
-  // Reset on new jobId
+  // Persist the start time per jobId in a module-level map so remounts
+  // (tab switches, HMR, reconciliation) don't reset the elapsed timer.
+  const startedAtRef = useRef(null)
+  if (!startedAtRef.current && jobId) {
+    const cached = _START_TIMES.get(jobId)
+    startedAtRef.current = cached ?? Date.now()
+    _START_TIMES.set(jobId, startedAtRef.current)
+  }
+
   useEffect(() => {
     setProgress(null)
     setElapsed(0)
-    startedAtRef.current = jobId ? Date.now() : null
+    if (jobId) {
+      const cached = _START_TIMES.get(jobId)
+      startedAtRef.current = cached ?? Date.now()
+      _START_TIMES.set(jobId, startedAtRef.current)
+      // Immediately compute elapsed so the first render isn't stuck at 00:00
+      setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000))
+    } else {
+      startedAtRef.current = null
+    }
   }, [jobId])
+
 
   // Poll progress while running
   useEffect(() => {
     clearInterval(pollRef.current)
-    if (!jobId || !running) return
+        if (!jobId || (!running && !paused)) return
 
     let cancelled = false
     let unknownCount = 0
@@ -87,16 +106,27 @@ export default function InlineJobPanel({
       clearTimeout(startDelay)
       clearInterval(pollRef.current)
     }
-  }, [jobId, running])
+  }, [jobId, running, paused])
 
   // Elapsed ticker
   useEffect(() => {
-    if (!running || !startedAtRef.current) { clearInterval(tickRef.current); return }
+  if ((!running && !paused) || !startedAtRef.current) { clearInterval(tickRef.current); return }
     tickRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000))
     }, 1000)
     return () => clearInterval(tickRef.current)
-  }, [running, jobId])
+  }, [running, paused, jobId])
+
+  // Prune start-time entry when the job reaches a terminal state
+  useEffect(() => {
+    if (!jobId) return
+    const terminal = cancelled || (progress?.status && ["completed", "failed", "cancelled"].includes(progress.status))
+    if (terminal) {
+      // Small grace period so a remount right at the end still finds the cached time
+      const t = setTimeout(() => _START_TIMES.delete(jobId), 30_000)
+      return () => clearTimeout(t)
+    }
+  }, [jobId, cancelled, progress?.status])
 
   if (!jobId && !running) return null
 
@@ -252,57 +282,62 @@ export default function InlineJobPanel({
       transition: 'border-color 0.2s',
     }}>
       {/* Header row — status pill + stop button */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              fontSize: 12, fontWeight: 600,
-              color: meta.dot,
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)', marginRight: 4 }}>
+          {fmtTime(elapsed)}
+        </span>
+
+        {(uiStatus === 'running' || uiStatus === 'paused') && secondaryActions.map((a, i) => (
+          <button key={i} type="button" onClick={a.onClick} disabled={a.disabled}
+            title={a.title}
+            style={{
+              fontSize: 12, fontWeight: 600, padding: '5px 12px',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--line-2)', background: 'var(--surface)',
+              color: a.disabled ? 'var(--ink-3)' : 'var(--ink-2)',
+              cursor: a.disabled ? 'not-allowed' : 'pointer',
+              opacity: a.disabled ? 0.5 : 1,
             }}>
-              <span style={{
-                display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-                background: meta.dot,
-                boxShadow: meta.pulse ? '0 0 0 3px rgba(80,130,220,0.18)' : 'none',
-                animation: meta.pulse ? 'pulse 1.4s ease-in-out infinite' : 'none',
-              }} />
-              {meta.label}
-            </span>
-          <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>{stageLabel}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)' }}>
-            {fmtTime(elapsed)}
-          </span>
-          {uiStatus === 'running' && onStop && (
-            <button type="button" onClick={onStop}
-              style={{
-                fontSize: 12, fontWeight: 600, padding: '5px 14px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--bad)', background: 'transparent',
-                color: 'var(--bad)', cursor: 'pointer',
-              }}>
-              ■ Stop
-            </button>
+            {a.label}
+          </button>
+        ))}
+
+        {(uiStatus === 'running' || uiStatus === 'paused') && onStop && (
+          <button type="button" onClick={onStop}
+            style={{
+              fontSize: 12, fontWeight: 600, padding: '5px 14px',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--bad)', background: 'transparent',
+              color: 'var(--bad)', cursor: 'pointer',
+            }}>
+            ■ Stop
+          </button>
           )}
         </div>
-      </div>
 
       {/* Progress bar */}
       <div style={{
         height: 6, borderRadius: 3, background: 'var(--bg-2)',
         overflow: 'hidden', position: 'relative',
       }}>
-        <div style={{
+        {uiStatus === 'running' && progress?.percent == null && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'linear-gradient(90deg, transparent, var(--cobalt-soft), transparent)',
+            animation: 'inlinePanelShimmer 1.4s ease-in-out infinite',
+          }} />
+        )} </div>
+      <div style={{
           height: '100%', width: `${pct}%`,
           background:
             uiStatus === 'running'   ? 'linear-gradient(90deg, var(--cobalt-deep), #7aa9ff)'
+          : uiStatus === 'paused'    ? 'rgb(180,120,20)'
           : uiStatus === 'cancelled' ? 'var(--ink-3)'
           : uiStatus === 'failed'    ? 'var(--bad)'
           :                            'var(--ok)',
           transition: 'width 0.4s ease-out',
           borderRadius: 3,
-        }} />
-      </div>
+      }} />
 
       {/* Progress text row */}
       <div style={{
@@ -310,13 +345,25 @@ export default function InlineJobPanel({
         marginTop: 6, fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)',
       }}>
         <span>
-          {progress?.total > 0
-            ? `Patch ${progress.current} / ${progress.total}`
-            : estimatedPatches
-              ? `~${estimatedPatches.toLocaleString()} patches expected`
-              : 'Initialising…'}
+          {(() => {
+            const total = progress?.total
+            const disc  = progress?.current
+            if (total > 0 && disc > 0) {
+              return `${total.toLocaleString()} candidates · ${disc.toLocaleString()} discarded`
+            }
+            if (total > 0) return `${total.toLocaleString()} candidates planned`
+            if (estimatedPatches) return `~${estimatedPatches.toLocaleString()} candidates expected`
+            if (progress?.stage) return `${stages[progress.stage] || progress.stage}…`
+            return 'Initialising…'
+          })()}
         </span>
-        <span>{pct.toFixed(1)}%</span>
+        <span>
+          {progress?.percent != null
+            ? `${pct.toFixed(1)}%`
+            : uiStatus === 'running'
+              ? 'working…'
+              : `${pct.toFixed(1)}%`}
+        </span>
       </div>
 
       {/* Context strip — output dir + inference params */}
@@ -358,6 +405,10 @@ export default function InlineJobPanel({
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.4; }
+        }
+        @keyframes inlinePanelShimmer {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
         }
       `}</style>
     </div>

@@ -6,6 +6,7 @@ Streams stdout/stderr as Server-Sent Events.
 """
 import asyncio
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -311,12 +312,31 @@ def get_job_summary(job_id: str) -> Optional[dict]:
     }
 
 
-def get_recent_lines(job_id: str, max_lines: int = 200) -> list[str]:
-    """Return the most recent log lines for a job (never raises)."""
+def get_recent_lines(
+    job_id: str,
+    max_lines: int = 200,
+    skip_debug: bool = False,
+) -> list[str]:
+    """Return the most recent log lines for a job (never raises).
+
+    If skip_debug is True, DEBUG-level lines are filtered out before the
+    last `max_lines` are returned. This is important for jobs that emit
+    heavy GDAL/rasterio DEBUG chatter (preprocessing) — otherwise the
+    interesting INFO lines get pushed out of the window entirely.
+    """
     job = _jobs.get(job_id)
     if job is None:
         return []
     try:
-        return list(job.logs)[-max_lines:]
+        lines = list(job.logs)
     except Exception:
         return []
+
+    if skip_debug:
+        # Match lines that start with "DEBUG" either immediately or after a
+        # leading timestamp ("11:22:16  DEBUG      ...") — both forms occur
+        # because the pipeline logs via both print() and logging.
+        _dbg_re = re.compile(r'^\s*(?:\d{2}:\d{2}:\d{2}\s+)?DEBUG\b')
+        lines = [ln for ln in lines if not _dbg_re.match(ln)]
+
+    return lines[-max_lines:]

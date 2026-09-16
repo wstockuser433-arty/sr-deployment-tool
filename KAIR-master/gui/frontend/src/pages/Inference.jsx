@@ -9,35 +9,38 @@ import {
   getRawInferenceMetrics, getRawResultImageUrl, getImageInfo,
   getInferenceSummary, 
 } from '../api/client'
-import LogConsole from '../components/LogConsole'
+// import LogConsole from '../components/LogConsole'
 import {
   SelectField, NumberField, BoolToggle,
   ArrayEditor, CollapsibleSection, PathField,
 } from '../components/FormFields'
+// import InlineInferencePanel from '../components/InlineInferencePanel'
 
-import InLineJobPanel from '../components/InlineJobPanel'
-
-import InlineInferencePanel from '../components/InlineInferencePanel'
+import LogConsole from '../components/LogConsole'
+import InlineJobPanel from '../components/InlineJobPanel'
+import ImageInfoCard from '../components/ImageInfoCard'
+import LiveOutputBadge from '../components/LiveOutputBadge'
+import useImageMeta from '../hooks/useImageMeta'
 
 /* ─── Constants ─────────────────────────────────────────────── */
 
 /* ─── Live Output status badge ──────────────────────────────── */
-function LiveOutputBadge({ status }) {
-  const styles = {
-    running:   { bg: 'var(--cobalt-soft)', fg: 'var(--cobalt-deep)', label: 'Running'   },
-    cancelled: { bg: 'var(--bg-2)',        fg: 'var(--ink-3)',       label: 'Cancelled' },
-    completed: { bg: 'rgba(60,180,100,0.12)', fg: 'var(--ok)',       label: 'Complete'  },
-    failed:    { bg: 'rgba(220,70,70,0.10)',  fg: 'var(--bad)',      label: 'Failed'    },
-  }
-  const s = styles[status] || styles.running
-  return (
-    <span style={{
-      fontSize: 10, fontWeight: 600, padding: '1px 6px',
-      borderRadius: 4, background: s.bg, color: s.fg,
-      textTransform: 'uppercase', letterSpacing: '0.05em',
-    }}>{s.label}</span>
-  )
-}
+// function LiveOutputBadge({ status }) {
+//   const styles = {
+//     running:   { bg: 'var(--cobalt-soft)', fg: 'var(--cobalt-deep)', label: 'Running'   },
+//     cancelled: { bg: 'var(--bg-2)',        fg: 'var(--ink-3)',       label: 'Cancelled' },
+//     completed: { bg: 'rgba(60,180,100,0.12)', fg: 'var(--ok)',       label: 'Complete'  },
+//     failed:    { bg: 'rgba(220,70,70,0.10)',  fg: 'var(--bad)',      label: 'Failed'    },
+//   }
+//   const s = styles[status] || styles.running
+//   return (
+//     <span style={{
+//       fontSize: 10, fontWeight: 600, padding: '1px 6px',
+//       borderRadius: 4, background: s.bg, color: s.fg,
+//       textTransform: 'uppercase', letterSpacing: '0.05em',
+//     }}>{s.label}</span>
+//   )
+// }
 
 
 const UPSAMPLER_OPTIONS = ['pixelshuffle', 'pixelshuffledirect', 'nearest+conv']
@@ -324,38 +327,38 @@ function CoregSection({ coreg, setCoreg }) {
   )
 }
 
-/* ─── Image Information card ───────────────────────────────── */
-function ImageInfoCard({ meta, title = 'IMAGE INFORMATION' }) {
-  if (!meta) return null
-  const rows = [
-    ['Dimensions', `${meta.width} × ${meta.height}`],
-    ['Bands', meta.bands],
-    ['Data type', meta.dtype || '—'],
-    ['Format', meta.format || '—'],
-    ['Geospatial', meta.geospatial ? '✓' : '—'],
-  ]
-  if (meta.gsd != null) rows.push(['GSD', `${meta.gsd} m`])
-  if (meta.crs) rows.push(['CRS', meta.crs])
+// /* ─── Image Information card ───────────────────────────────── */
+// function ImageInfoCard({ meta, title = 'IMAGE INFORMATION' }) {
+//   if (!meta) return null
+//   const rows = [
+//     ['Dimensions', `${meta.width} × ${meta.height}`],
+//     ['Bands', meta.bands],
+//     ['Data type', meta.dtype || '—'],
+//     ['Format', meta.format || '—'],
+//     ['Geospatial', meta.geospatial ? '✓' : '—'],
+//   ]
+//   if (meta.gsd != null) rows.push(['GSD', `${meta.gsd} m`])
+//   if (meta.crs) rows.push(['CRS', meta.crs])
 
-  return (
-    <div style={{
-      background: 'var(--bg-2)', border: '1px solid var(--line-2)',
-      borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginTop: 10,
-    }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
-        {title}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', rowGap: 4, fontSize: 12 }}>
-        {rows.map(([k, v]) => (
-          <div key={k} style={{ display: 'contents' }}>
-            <div style={{ color: 'var(--ink-3)' }}>{k}</div>
-            <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-1)', wordBreak: 'break-all' }}>{v}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
+//   return (
+//     <div style={{
+//       background: 'var(--bg-2)', border: '1px solid var(--line-2)',
+//       borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginTop: 10,
+//     }}>
+//       <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+//         {title}
+//       </div>
+//       <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', rowGap: 4, fontSize: 12 }}>
+//         {rows.map(([k, v]) => (
+//           <div key={k} style={{ display: 'contents' }}>
+//             <div style={{ color: 'var(--ink-3)' }}>{k}</div>
+//             <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-1)', wordBreak: 'break-all' }}>{v}</div>
+//           </div>
+//         ))}
+//       </div>
+//     </div>
+//   )
+// }
 
 /* ─── Inference summary card ───────────────────────────────── */
 function InferenceSummaryCard({ summary }) {
@@ -864,17 +867,17 @@ function PassFailBadge({ metrics }) {
 /* ═══════════════════════════════════════════════════════════════
    Reusable image-metadata hook
    ═══════════════════════════════════════════════════════════════ */
-function useImageMeta(path, delay = 700) {
-  const [meta, setMeta] = useState(null)
-  useEffect(() => {
-    if (!path || !path.trim()) { setMeta(null); return }
-    const t = setTimeout(() => {
-      getImageInfo(path).then(r => setMeta(r.data)).catch(() => setMeta(null))
-    }, delay)
-    return () => clearTimeout(t)
-  }, [path, delay])
-  return meta
-}
+// function useImageMeta(path, delay = 700) {
+//   const [meta, setMeta] = useState(null)
+//   useEffect(() => {
+//     if (!path || !path.trim()) { setMeta(null); return }
+//     const t = setTimeout(() => {
+//       getImageInfo(path).then(r => setMeta(r.data)).catch(() => setMeta(null))
+//     }, delay)
+//     return () => clearTimeout(t)
+//   }, [path, delay])
+//   return meta
+// }
 
 /* ═══════════════════════════════════════════════════════════════
    Reusable model auto-load hook (latest from task)
@@ -1022,7 +1025,7 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
             {loading ? 'Starting…' : '▶ Run Super-Resolution'}
           </button>
 
-          <InlineInferencePanel
+          <InlineJobPanel
             jobId={jobId}
             running={!!jobId && !jobDone && !cancelled}
             cancelled={cancelled}
@@ -1287,7 +1290,7 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
             {loading ? 'Starting…' : '▶ Run Super-Resolution'}
           </button>
 
-          <InlineInferencePanel
+          <InlineJobPanel
             jobId={jobId}
             running={!!jobId && !jobDone && !cancelled}
             cancelled={cancelled}
@@ -1501,7 +1504,7 @@ function LROnlyTab({ tasks, optionsFiles, jobId, setJobId }) {
             {loading ? 'Starting…' : '▶ Run Super-Resolution'}
           </button>
 
-          <InlineInferencePanel
+          <InlineJobPanel
             jobId={jobId}
             running={!!jobId && !jobDone && !cancelled}
             cancelled={cancelled}

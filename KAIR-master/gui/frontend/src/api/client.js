@@ -45,6 +45,11 @@ export const resumePreprocessing = (jobId) => api.post(`/preprocessing/resume/${
 export const getPreprocessingStatus = (jobId) => api.get(`/preprocessing/status/${jobId}`)
 export const detectPreprocessingStructure = (path) =>
   api.get('/preprocessing/detect-structure', { params: { path } })
+export const getPreprocessingProgress = (jobId) =>
+  api.get(`/preprocessing/progress/${jobId}`)
+export const getPreprocessingSummary = (params) =>
+  api.get('/preprocessing/preprocessing-summary', { params })
+
 
 // ── Filesystem browser ────────────────────────────────────────────────────────
 export const listDirectory = (path = '', mode = 'dirs', extensions = '') =>

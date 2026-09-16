@@ -3,10 +3,15 @@ import {
   startPipeline3, startRunPipeline, stopPreprocessing,
   pausePreprocessing, resumePreprocessing,
   detectPreprocessingStructure, listDirectory, fsImageUrl,
-  getImageInfo, compareImages,
+  compareImages,
+  getPreprocessingProgress, getPreprocessingSummary,
 } from '../api/client'
 import { useJobContext } from '../context/JobContext'
 import LogConsole from '../components/LogConsole'
+import InlineJobPanel from '../components/InlineJobPanel'
+import ImageInfoCard from '../components/ImageInfoCard'
+import LiveOutputBadge from '../components/LiveOutputBadge'
+import useImageMeta from '../hooks/useImageMeta'
 import {
   SelectField, TextField, NumberField, BoolToggle,
   ArrayEditor, CollapsibleSection, PathField
@@ -217,21 +222,21 @@ const BAND_PRESETS = [
   { key: 'custom', label: 'Custom…',                                  n: null, bands: [],                                                                              rgbHR: null,      rgbLR: null },
 ]
 
-function MetaPill({ meta }) {
-  if (!meta) return null
-  return (
-    <div style={{
-      display: 'inline-flex', gap: 10, fontSize: 11, color: 'var(--cobalt-deep)',
-      background: 'var(--cobalt-soft)', borderRadius: 'var(--radius-sm)',
-      padding: '4px 10px', marginTop: 4, flexWrap: 'wrap',
-    }}>
-      <span>{meta.bands} band{meta.bands !== 1 ? 's' : ''}</span>
-      <span>·</span>
-      <span>{meta.width} × {meta.height} px</span>
-      {meta.format && <><span>·</span><span>{meta.format}</span></>}
-    </div>
-  )
-}
+// function MetaPill({ meta }) {
+//   if (!meta) return null
+//   return (
+//     <div style={{
+//       display: 'inline-flex', gap: 10, fontSize: 11, color: 'var(--cobalt-deep)',
+//       background: 'var(--cobalt-soft)', borderRadius: 'var(--radius-sm)',
+//       padding: '4px 10px', marginTop: 4, flexWrap: 'wrap',
+//     }}>
+//       <span>{meta.bands} band{meta.bands !== 1 ? 's' : ''}</span>
+//       <span>·</span>
+//       <span>{meta.width} × {meta.height} px</span>
+//       {meta.format && <><span>·</span><span>{meta.format}</span></>}
+//     </div>
+//   )
+// }
 
 // ── Pipeline A defaults ────────────────────────────────────────────────────────
 const DEFAULT_P3 = {
@@ -325,6 +330,47 @@ function deepSet(obj, path, value) {
   return next
 }
 
+
+/* ─── Preprocessing patch-count estimate ─────────────────────── */
+function PreprocessingSummaryCard({ summary }) {
+  if (!summary) return null
+  return (
+    <div style={{
+      background: 'var(--bg-2)', border: '1px solid var(--line-2)',
+      borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginTop: 10,
+    }}>
+      <div style={{
+        fontSize: 10, fontWeight: 700, color: 'var(--ink-3)',
+        textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8,
+      }}>
+        EXTRACTION SUMMARY
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', rowGap: 4, fontSize: 12 }}>
+        <div style={{ color: 'var(--ink-3)' }}>Input</div>
+        <div style={{ fontFamily: 'var(--font-mono)' }}>
+          {summary.input_width} × {summary.input_height}
+        </div>
+        <div style={{ color: 'var(--ink-3)' }}>Patch size</div>
+        <div style={{ fontFamily: 'var(--font-mono)' }}>{summary.patch_size} × {summary.patch_size}</div>
+        <div style={{ color: 'var(--ink-3)' }}>Stride</div>
+        <div style={{ fontFamily: 'var(--font-mono)' }}>{summary.stride} px</div>
+        <div style={{ color: 'var(--ink-3)' }}>Estimated patches</div>
+        <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--cobalt-deep)', fontWeight: 600 }}>
+          {summary.total_patches.toLocaleString()}
+          <span style={{ color: 'var(--ink-3)', marginLeft: 6, fontWeight: 400 }}>
+            ({summary.patches_x} × {summary.patches_y})
+          </span>
+        </div>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 6 }}>
+        Before quality filters (variance, nodata, SSIM, ECC) trim the count.
+      </div>
+    </div>
+  )
+}
+
+
+
 // ── Pipeline A Component ─────────────────────────────────────────────────────
 
 function Pipeline3Form({ onJobStart }) {
@@ -333,17 +379,20 @@ function Pipeline3Form({ onJobStart }) {
   const [error, setError] = useState('')
   const [bandPreset, setBandPreset] = useState('rgb')
   const [customBandCount, setCustomBandCount] = useState(3)
-  const [hrMeta, setHrMeta] = useState(null)
-  const [lrMeta, setLrMeta] = useState(null)
+  // const [hrMeta, setHrMeta] = useState(null)
+  // const [lrMeta, setLrMeta] = useState(null)
+  const hrMeta = useImageMeta(form.hr_image_path)
+  const lrMeta = useImageMeta(form.lr_image_path)
   const [pairPsnr, setPairPsnr] = useState(null)
   const [hrSubdirs, setHrSubdirs] = useState([])
   const [classSearch, setClassSearch] = useState('')
-  const hrTimerRef = useRef(null)
-  const lrTimerRef = useRef(null)
+  // const hrTimerRef = useRef(null)
+  // const lrTimerRef = useRef(null)
   const psnrTimerRef = useRef(null)
   const subdirTimerRef = useRef(null)
   const fileInputRef = useRef(null)
-
+  const [summary, setSummary] = useState(null)
+  
   const set = (path, value) => setForm((prev) => deepSet(prev, path, value))
 
   const handleLoadDegradationFile = (e) => {
@@ -379,23 +428,36 @@ function Pipeline3Form({ onJobStart }) {
     if (preset.rgbHR) setForm(prev => ({ ...prev, hr_rgb_bands: preset.rgbHR, lr_rgb_bands: preset.rgbLR }))
   }
 
-  useEffect(() => {
-    clearTimeout(hrTimerRef.current)
-    if (!form.hr_image_path.trim()) { setHrMeta(null); return }
-    hrTimerRef.current = setTimeout(() => {
-      getImageInfo(form.hr_image_path).then(r => setHrMeta(r.data)).catch(() => setHrMeta(null))
-    }, 700)
-    return () => clearTimeout(hrTimerRef.current)
-  }, [form.hr_image_path])
+  // useEffect(() => {
+  //   clearTimeout(hrTimerRef.current)
+  //   if (!form.hr_image_path.trim()) { setHrMeta(null); return }
+  //   hrTimerRef.current = setTimeout(() => {
+  //     getImageInfo(form.hr_image_path).then(r => setHrMeta(r.data)).catch(() => setHrMeta(null))
+  //   }, 700)
+  //   return () => clearTimeout(hrTimerRef.current)
+  // }, [form.hr_image_path])
 
+  // useEffect(() => {
+  //   clearTimeout(lrTimerRef.current)
+  //   if (!form.lr_image_path.trim()) { setLrMeta(null); return }
+  //   lrTimerRef.current = setTimeout(() => {
+  //     getImageInfo(form.lr_image_path).then(r => setLrMeta(r.data)).catch(() => setLrMeta(null))
+  //   }, 700)
+  //   return () => clearTimeout(lrTimerRef.current)
+  // }, [form.lr_image_path])
+
+  // Fetch patch-count estimate whenever HR dims or geometry change
   useEffect(() => {
-    clearTimeout(lrTimerRef.current)
-    if (!form.lr_image_path.trim()) { setLrMeta(null); return }
-    lrTimerRef.current = setTimeout(() => {
-      getImageInfo(form.lr_image_path).then(r => setLrMeta(r.data)).catch(() => setLrMeta(null))
-    }, 700)
-    return () => clearTimeout(lrTimerRef.current)
-  }, [form.lr_image_path])
+    if (!hrMeta?.width || !hrMeta?.height) { setSummary(null); return }
+    if (!form.hr_patch_size || !form.stride) { setSummary(null); return }
+    const t = setTimeout(() => {
+      getPreprocessingSummary({
+        width: hrMeta.width, height: hrMeta.height,
+        hr_patch_size: form.hr_patch_size, stride: form.stride,
+      }).then(r => setSummary(r.data)).catch(() => setSummary(null))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [hrMeta?.width, hrMeta?.height, form.hr_patch_size, form.stride])
 
   useEffect(() => {
     clearTimeout(psnrTimerRef.current)
@@ -448,12 +510,12 @@ function Pipeline3Form({ onJobStart }) {
           extensions=".jp2,.tif,.tiff,.png,.jpg,.jpeg,.bmp,.img,.nitf,.nc,.hdr"
           value={form.hr_image_path} onChange={(v) => set('hr_image_path', v)}
           placeholder="path/to/HR.JP2" />
-        <MetaPill meta={hrMeta} />
+        {hrMeta && <ImageInfoCard meta={hrMeta} title="HR IMAGE INFORMATION" />}
         <PathField label="LR image path" hint=".JP2, GeoTIFF, PNG, JPG, BMP…" mode="files"
           extensions=".jp2,.tif,.tiff,.png,.jpg,.jpeg,.bmp,.img,.nitf,.nc,.hdr"
           value={form.lr_image_path} onChange={(v) => set('lr_image_path', v)}
           placeholder="path/to/LR.JP2" />
-        <MetaPill meta={lrMeta} />
+        {lrMeta && <ImageInfoCard meta={lrMeta} title="LR IMAGE INFORMATION" />}
 
         {/* Class subfolder selector — shown when the HR directory has subdirectories */}
         {hrSubdirs.length > 0 && (() => {
@@ -594,7 +656,9 @@ function Pipeline3Form({ onJobStart }) {
             tooltip="Step size (pixels) between consecutive patch windows. Setting lower than patch size creates overlapping patches, yielding more training data at the cost of speed." />
         </div>
       </CollapsibleSection>
-
+      
+      <PreprocessingSummaryCard summary={summary} />
+      
       {/* ── Degradation (HR-only mode: no LR path given → synthesize LR from HR patches) ── */}
       {!form.lr_image_path.trim() && (
         <CollapsibleSection title="Degradation" defaultOpen>
@@ -690,8 +754,8 @@ function Pipeline3Form({ onJobStart }) {
         </CollapsibleSection>
       )}
 
-      {/* ── Quality filters ── */}
-      <CollapsibleSection title="Quality Filters" defaultOpen={false}>
+      {/* ── Advanced Quality filters ── */}
+      <CollapsibleSection title="⚙ Advanced Quality Filters" defaultOpen={false}>
         <div className="grid-2">
           <NumberField label="Max nodata fraction" value={form.max_nodata_fraction}
             onChange={(v) => set('max_nodata_fraction', v)} min={0} max={1} step={0.01}
@@ -716,8 +780,8 @@ function Pipeline3Form({ onJobStart }) {
         </div>
       </CollapsibleSection>
 
-      {/* ── Coregistration ── */}
-      <CollapsibleSection title="Coregistration" defaultOpen={false}>
+      {/* ── Advanced Coregistration ── */}
+      <CollapsibleSection title="⚙ Advanced Coregistration" defaultOpen={false}>
         <div className="section-title" style={{ marginTop: 10 }}><h3>Stage A — ORB Keypoint Matching</h3></div>
         <BoolToggle label="Enable Stage A" value={form.coreg_a.enabled}
           onChange={(v) => set('coreg_a.enabled', v)} />
@@ -748,8 +812,8 @@ function Pipeline3Form({ onJobStart }) {
         )}
       </CollapsibleSection>
 
-      {/* ── Radiometric ── */}
-      <CollapsibleSection title="Radiometric Normalisation" defaultOpen={false}>
+      {/* ── Advanced Radiometric ── */}
+      <CollapsibleSection title="⚙ Advanced Radiometric Normalisation" defaultOpen={false}>
         <div className="grid-2">
           <NumberField label="RMSE threshold" value={form.radiometric_rmse_threshold}
             onChange={(v) => set('radiometric_rmse_threshold', v)} step={1} />
@@ -781,7 +845,7 @@ function Pipeline3Form({ onJobStart }) {
       {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
 
       <button type="submit" className="btn btn-primary full-width" disabled={loading} style={{ marginTop: 8 }}>
-        {loading ? 'Starting…' : '▶ Run Pipeline'}
+        {loading ? 'Starting…' : '▶ Run Preprocessing'}
       </button>
     </form>
   )
@@ -1085,7 +1149,7 @@ function RunPipelineForm({ onJobStart }) {
       {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
 
       <button type="submit" className="btn btn-primary full-width" disabled={loading} style={{ marginTop: 8 }}>
-        {loading ? 'Starting…' : '▶ Run Pipeline'}
+        {loading ? 'Starting…' : '▶ Run Preprocessing'}
       </button>
     </form>
   )
@@ -1100,30 +1164,44 @@ export default function Preprocessing() {
   const setJobId = (id) => setCtxJobId('preprocessing', id)
   const [previewMap, setPreviewMap] = useState({})
   const [classResults, setClassResults] = useState([])
+  const [cancelled, setCancelled] = useState(false)
+  const [paused, setPaused] = useState(false)
+  const [jobDone, setJobDone] = useState(false)
+  const [progressSummary, setProgressSummary] = useState(null)
+  const jobIdRef = useRef(null)
   const logPanelRef = useRef(null)
 
   const handleStop = async () => {
+    setCancelled(true)
+    setPaused(false)
     if (jobId) await stopPreprocessing(jobId).catch(() => { })
   }
 
   const handlePause = async () => {
-    if (jobId) await pausePreprocessing(jobId).catch(() => { })
+    if (!jobId) return
+    setPaused(true)
+    await pausePreprocessing(jobId).catch(() => setPaused(false))
   }
 
   const handleResume = async () => {
-    if (jobId) await resumePreprocessing(jobId).catch(() => { })
+    if (!jobId) return
+    setPaused(false)
+    await resumePreprocessing(jobId).catch(() => setPaused(true))
   }
 
   const handleJobStart = (jid) => {
+    jobIdRef.current = jid
     setJobId(jid)
     setPreviewMap({})
     setClassResults([])
-    setTimeout(() => {
-      logPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 50)
+    setCancelled(false)
+    setPaused(false)
+    setJobDone(false)
+    setProgressSummary(null)
   }
 
   const handleLogLine = (line) => {
+    if (jobIdRef.current !== jobId) return
     if (line.startsWith('[CLASS_DONE] ')) {
       try {
         const data = JSON.parse(line.slice('[CLASS_DONE] '.length))
@@ -1131,6 +1209,44 @@ export default function Preprocessing() {
       } catch { }
     }
   }
+
+
+  // Poll progress while running (or paused)
+  useEffect(() => {
+    if (!jobId) { setProgressSummary(null); return }
+    if (jobDone || cancelled) { return }
+
+    let cancelledLocal = false
+    let unknownCount = 0
+
+    const tick = async () => {
+      try {
+        const r = await getPreprocessingProgress(jobId)
+        if (cancelledLocal) return
+        const data = r.data || {}
+        setProgressSummary(data)
+
+        if (["completed", "failed", "cancelled"].includes(data.status)) {
+          setJobDone(true)
+          return
+        }
+        if (data.status === "unknown") {
+          unknownCount += 1
+          if (unknownCount >= 5) setJobDone(true)
+        } else {
+          unknownCount = 0
+        }
+      } catch { /* swallow */ }
+    }
+
+    const startDelay = setTimeout(tick, 300)
+    const poll = setInterval(tick, 2000)
+    return () => {
+      cancelledLocal = true
+      clearTimeout(startDelay)
+      clearInterval(poll)
+    }
+  }, [jobId, jobDone, cancelled])
 
   const previewCount = Object.keys(previewMap).length
   const hasClassResults = classResults.length > 0
@@ -1176,67 +1292,180 @@ export default function Preprocessing() {
           ))}
         </div>
 
-        {activeTab < 2 && (
+                <div style={{ display: activeTab === 0 ? 'block' : 'none' }}>
           <div className="module-grid rise" style={{ animationDelay: '100ms' }}>
             <div className="col">
-              {activeTab === 0 && (
-                <div className="animate-in">
-                  <div style={{ marginBottom: 12 }}>
-                    <span style={{ fontSize: 15, fontWeight: 600 }}>Pleiades / Multi-sensor Patch Extraction</span>
-                  </div>
-                  <ol style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.7, paddingLeft: 18 }}>
-                    <li>Load paired HR + LR GeoTIFF or JP2 satellite images</li>
-                    <li>Stage A — ORB keypoint matching &amp; RANSAC homography (coarse global alignment)</li>
-                    <li>Stage B — Phase correlation FFT sub-pixel shift</li>
-                    <li>Stage C — Per-patch ECC refinement (local alignment)</li>
-                    <li>Radiometric regression (linear LR→HR normalisation) + optional histogram matching</li>
-                    <li>Sliding-window patch extraction with quality filters (variance, nodata, SSIM, ECC)</li>
-                    <li>Optional train/test split of extracted patches</li>
-                  </ol>
-                  <Pipeline3Form onJobStart={handleJobStart} />
+              <div className="animate-in">
+                <div style={{ marginBottom: 12 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600 }}>Pleiades / Multi-sensor Patch Extraction</span>
                 </div>
-              )}
-              {activeTab === 1 && (
-                <div className="animate-in">
-                  <div style={{ marginBottom: 12 }}>
-                    <span style={{ fontSize: 15, fontWeight: 600 }}>HR-only / HR+LR Pair Preprocessing</span>
-                  </div>
-                  <ol style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.7, paddingLeft: 18 }}>
-                    <li>Load HR images (and optionally matching LR images for HR+LR pair mode)</li>
-                    <li>Optional cloud masking (Sentinel-2 s2cloudless, 10-band)</li>
-                    <li>Optional percentile normalisation (scales to 8-bit output range)</li>
-                    <li><strong>HR-only mode:</strong> degrade HR → synthetic LR via BSRGAN / Real-ESRGAN / BSRGAN+ / Satellite MTF</li>
-                    <li><strong>HR+LR pair mode:</strong> preprocess both HR and LR as-is without degradation</li>
-                    <li>Save HR and LR images to output directories in chosen format (PNG / TIF / JPG)</li>
-                    <li>Optional train/test split of saved images</li>
-                  </ol>
-                  <RunPipelineForm onJobStart={handleJobStart} />
-                </div>
-              )}
+                <ol style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.7, paddingLeft: 18 }}>
+                  <li>Load paired HR + LR GeoTIFF or JP2 satellite images</li>
+                  <li>Stage A — ORB keypoint matching &amp; RANSAC homography (coarse global alignment)</li>
+                  <li>Stage B — Phase correlation FFT sub-pixel shift</li>
+                  <li>Stage C — Per-patch ECC refinement (local alignment)</li>
+                  <li>Radiometric regression (linear LR→HR normalisation) + optional histogram matching</li>
+                  <li>Sliding-window patch extraction with quality filters (variance, nodata, SSIM, ECC)</li>
+                  <li>Optional train/test split of extracted patches</li>
+                </ol>
+                <Pipeline3Form onJobStart={handleJobStart} />
+
+                <InlineJobPanel
+                  jobId={jobId}
+                  running={!!jobId && !jobDone && !cancelled && !paused}
+                  paused={paused}
+                  cancelled={cancelled}
+                  onStop={handleStop}
+                  secondaryActions={[
+                    paused
+                      ? { label: '▶ Resume', onClick: handleResume }
+                      : { label: '⏸ Pause',  onClick: handlePause, disabled: jobDone || cancelled },
+                  ]}
+                  outputDir={progressSummary?.output_dir || null}
+                  stageVocabulary={{
+                    load: 'Loading scene',
+                    decimate: 'Decimating overview',
+                    'stage a': 'Stage A — ORB',
+                    'stage b': 'Stage B — Phase',
+                    'stage c': 'Stage C — ECC',
+                    radiometric: 'Radiometric normalisation',
+                    histogram: 'Histogram matching',
+                    normalize: 'Percentile normalisation',
+                    patch: 'Extracting patches',
+                    save: 'Saving outputs',
+                    split: 'Train/test split',
+                    done: 'Done',
+                  }}
+                  runningLabel="Processing"
+                  estimatedPatches={progressSummary?.total || null}
+                />
+              </div>
             </div>
             <div className="col" ref={logPanelRef}>
               {jobId && (
-                <LogConsole
-                  domain="preprocessing"
-                  jobId={jobId}
-                  onStop={handleStop}
-                  onPause={handlePause}
-                  onResume={handleResume}
-                  onPreviewsChange={setPreviewMap}
-                  onLine={handleLogLine}
-                />
+                <CollapsibleSection
+                  title={
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      Live Output
+                      <LiveOutputBadge
+                        status={
+                          cancelled ? 'cancelled'
+                          : paused  ? 'paused'
+                          : jobDone ? 'completed'
+                          :           'running'
+                        }
+                      />
+                    </span>
+                  }
+                  defaultOpen={false}
+                >
+                  <LogConsole
+                    domain="preprocessing"
+                    jobId={jobId}
+                    onStop={handleStop}
+                    onPause={handlePause}
+                    onResume={handleResume}
+                    onPreviewsChange={setPreviewMap}
+                    onLine={handleLogLine}
+                    onComplete={() => {
+                      if (jobIdRef.current !== jobId) return
+                      setJobDone(true)
+                    }}
+                  />
+                </CollapsibleSection>
               )}
             </div>
           </div>
-        )}
+        </div>
 
-        {activeTab === 2 && (
+        <div style={{ display: activeTab === 1 ? 'block' : 'none' }}>
+          <div className="module-grid rise" style={{ animationDelay: '100ms' }}>
+            <div className="col">
+              <div className="animate-in">
+                <div style={{ marginBottom: 12 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600 }}>HR-only / HR+LR Pair Preprocessing</span>
+                </div>
+                <ol style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.7, paddingLeft: 18 }}>
+                  <li>Load HR images (and optionally matching LR images for HR+LR pair mode)</li>
+                  <li>Optional cloud masking (Sentinel-2 s2cloudless, 10-band)</li>
+                  <li>Optional percentile normalisation (scales to 8-bit output range)</li>
+                  <li><strong>HR-only mode:</strong> degrade HR → synthetic LR via BSRGAN / Real-ESRGAN / BSRGAN+ / Satellite MTF</li>
+                  <li><strong>HR+LR pair mode:</strong> preprocess both HR and LR as-is without degradation</li>
+                  <li>Save HR and LR images to output directories in chosen format (PNG / TIF / JPG)</li>
+                  <li>Optional train/test split of saved images</li>
+                </ol>
+                <RunPipelineForm onJobStart={handleJobStart} />
+
+                <InlineJobPanel
+                  jobId={jobId}
+                  running={!!jobId && !jobDone && !cancelled && !paused}
+                  paused={paused}
+                  cancelled={cancelled}
+                  onStop={handleStop}
+                  secondaryActions={[
+                    paused
+                      ? { label: '▶ Resume', onClick: handleResume }
+                      : { label: '⏸ Pause',  onClick: handlePause, disabled: jobDone || cancelled },
+                  ]}
+                  outputDir={progressSummary?.output_dir || null}
+                  stageVocabulary={{
+                    load: 'Loading scene',
+                    cloud: 'Cloud masking',
+                    normalize: 'Normalisation',
+                    degradation: 'Degradation',
+                    save: 'Saving outputs',
+                    split: 'Train/test split',
+                    done: 'Done',
+                  }}
+                  runningLabel="Processing"
+                  estimatedPatches={progressSummary?.total || null}
+                />
+              </div>
+            </div>
+            <div className="col" ref={logPanelRef}>
+              {jobId && (
+                <CollapsibleSection
+                  title={
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      Live Output
+                      <LiveOutputBadge
+                        status={
+                          cancelled ? 'cancelled'
+                          : paused  ? 'paused'
+                          : jobDone ? 'completed'
+                          :           'running'
+                        }
+                      />
+                    </span>
+                  }
+                  defaultOpen={false}
+                >
+                  <LogConsole
+                    domain="preprocessing"
+                    jobId={jobId}
+                    onStop={handleStop}
+                    onPause={handlePause}
+                    onResume={handleResume}
+                    onPreviewsChange={setPreviewMap}
+                    onLine={handleLogLine}
+                    onComplete={() => {
+                      if (jobIdRef.current !== jobId) return
+                      setJobDone(true)
+                    }}
+                  />
+                </CollapsibleSection>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: activeTab === 2 ? 'block' : 'none' }}>
           <div className="rise" style={{ animationDelay: '80ms' }}>
             {hasClassResults && <ClassResultsPanel results={classResults} />}
             {previewCount > 0 && <StepPreviewPanel previews={previewMap} />}
             {!hasClassResults && previewCount === 0 && <StepPreviewPanel previews={{}} />}
           </div>
-        )}
+        </div>
       </div>
     </div>
   )
