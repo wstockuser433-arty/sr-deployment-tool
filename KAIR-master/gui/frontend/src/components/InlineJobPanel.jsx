@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getInferenceProgress } from '../api/client'
+// import { getInferenceProgress } from '../api/client'
 // Persists job start timestamps across component remounts.
 // Keyed by jobId; entries are pruned lazily when a job reaches terminal state.
 const _START_TIMES = new Map()
@@ -17,9 +17,9 @@ export default function InlineJobPanel({
   jobId,
   running,
   cancelled = false,
-  paused = false,                      // ← NEW
+  paused = false,
   onStop,
-  secondaryActions = [],               // ← NEW: [{ label, onClick, disabled, title }]
+  secondaryActions = [],
   outputDir,
   metrics = null,
   metricsError = '',
@@ -30,8 +30,9 @@ export default function InlineJobPanel({
   inputDims = null,
   estimatedPatches = null,
   acceptBar = null,
-  stageVocabulary = null,              // ← NEW: override the stage label map
-  runningLabel = 'Running',            // ← NEW: default 'Running' for inference
+  stageVocabulary = null,
+  runningLabel = 'Running',
+  progressFetcher,          // ← NEW: async (jobId) => { data: {...} }
 }) {
   const [progress, setProgress] = useState(null)
   
@@ -64,17 +65,23 @@ export default function InlineJobPanel({
 
 
   // Poll progress while running
-  useEffect(() => {
+    useEffect(() => {
     clearInterval(pollRef.current)
-        if (!jobId || (!running && !paused)) return
+    if (!jobId || (!running && !paused)) return
+    if (!progressFetcher) {
+      // No fetcher passed — fail loudly rather than silently polling the
+      // wrong endpoint. Every caller must supply one.
+      console.warn('[InlineJobPanel] no progressFetcher prop — progress bar will not update')
+      return
+    }
 
     let cancelled = false
     let unknownCount = 0
-    const UNKNOWN_LIMIT = 5      // ~10s of grace before we give up
+    const UNKNOWN_LIMIT = 5
 
     const tick = async () => {
       try {
-        const r = await getInferenceProgress(jobId)
+        const r = await progressFetcher(jobId)
         if (cancelled) return
         const data = r.data || {}
         setProgress(data)
@@ -87,15 +94,12 @@ export default function InlineJobPanel({
         if (data.status === "unknown") {
           unknownCount += 1
           if (unknownCount >= UNKNOWN_LIMIT) {
-            // The backend doesn't know this job. This is either a stale ID
-            // (survived a restart) or a race during launch that never resolved.
-            // Stop polling; the outer JobContext reconciler will clear it too.
             clearInterval(pollRef.current)
           }
         } else {
           unknownCount = 0
         }
-      } catch { /* swallow — endpoint is lenient now */ }
+      } catch { /* swallow */ }
     }
 
     const startDelay = setTimeout(tick, 300)
@@ -106,7 +110,7 @@ export default function InlineJobPanel({
       clearTimeout(startDelay)
       clearInterval(pollRef.current)
     }
-  }, [jobId, running, paused])
+  }, [jobId, running, paused, progressFetcher])
 
   // Elapsed ticker
   useEffect(() => {
@@ -357,7 +361,7 @@ export default function InlineJobPanel({
       }}>
         <span>
           {hasRealProgress
-            ? `Patch ${progress.current.toLocaleString()} / ${progress.total.toLocaleString()}`
+            ? `Patch ${Number(progress?.current ?? 0).toLocaleString()} / ${Number(progress?.total ?? 0).toLocaleString()}`
             : uiStatus === 'running'
               ? (estimatedPatches
                   ? `~${estimatedPatches.toLocaleString()} candidates expected`
@@ -368,7 +372,9 @@ export default function InlineJobPanel({
                 ? 'Stopped'
                 : uiStatus === 'paused'
                   ? 'Paused'
-                  : `${progress?.saved?.toLocaleString?.() ?? ''} patches saved`.trim() || 'Complete'}
+                  : (progress?.saved != null
+                      ? `${Number(progress.saved).toLocaleString()} patches saved`
+                      : 'Complete')}
         </span>
         <span>
           {uiStatus === 'running'

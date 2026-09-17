@@ -49,6 +49,8 @@ export const getPreprocessingProgress = (jobId) =>
   api.get(`/preprocessing/progress/${jobId}`)
 export const getPreprocessingSummary = (params) =>
   api.get('/preprocessing/preprocessing-summary', { params })
+export const startTileImagery = (payload) =>
+  api.post('/preprocessing/tile-imagery/start', payload)
 
 
 // ── Filesystem browser ────────────────────────────────────────────────────────

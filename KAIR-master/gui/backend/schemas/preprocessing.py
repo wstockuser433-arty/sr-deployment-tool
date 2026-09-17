@@ -183,3 +183,34 @@ class RunPipelineRequest(BaseModel):
 class JobResponse(BaseModel):
     job_id: str
     status: str
+
+
+class TileImageryRequest(BaseModel):
+    input_path: str
+    output_dir: str
+
+    # Discovery
+    supported_extensions: list[str] = [
+        ".tif", ".tiff", ".jp2", ".png", ".jpg", ".jpeg", ".bmp",
+    ]
+    recursive: bool = True
+
+    # Geometry
+    tile_size: int = 512
+    stride: int = 512
+    drop_incomplete_edge_tiles: bool = True
+
+    # Output
+    output_format: str = "png"          # "png" | "jpg" | "tif" | "auto"
+    output_bands: list[int] | None = None
+    png_stretch_percentiles: list[float] = [2.0, 98.0]
+    rescale_tif: bool = True
+    per_band_stretch: bool = True
+
+    # Quality filters
+    nodata_value: int = 0
+    max_nodata_fraction: float = 1.0
+    min_variance: float = 0.0
+
+    # I/O
+    gdal_cache_mb: int = 256

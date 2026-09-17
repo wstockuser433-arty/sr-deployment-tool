@@ -7,7 +7,7 @@ import {
   startInference, stopInference,
   startRawPairedInference, startLROnlyInference,
   getRawInferenceMetrics, getRawResultImageUrl, getImageInfo,
-  getInferenceSummary, 
+  getInferenceSummary, getInferenceProgress,
 } from '../api/client'
 // import LogConsole from '../components/LogConsole'
 import {
@@ -1034,6 +1034,7 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
               try { await stopInference(jobId) } catch { /* ignore */ }
             }}
             // onStop={() => stopInference(jobId).catch(() => { })}
+            progressFetcher={getInferenceProgress}    // ← ADD
             outputDir={inferConfig.sr_dir}
             metrics={jobDone ? patchedMetrics : null}
             metricsError={patchedMetricsError}
@@ -1299,6 +1300,7 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
               try { await stopInference(jobId) } catch { /* ignore */ }
             }}
             // onStop={() => stopInference(jobId).catch(() => { })}
+            progressFetcher={getInferenceProgress}    // ← ADD
             outputDir={config.output_dir}
             metrics={jobDone ? metrics : null}
             metricsError={metricsError}
@@ -1512,6 +1514,7 @@ function LROnlyTab({ tasks, optionsFiles, jobId, setJobId }) {
               setCancelled(true)
               try { await stopInference(jobId) } catch { /* ignore */ }
             }}
+            progressFetcher={getInferenceProgress}    // ← ADD
             outputDir={config.output_dir}
             scale={config.scale_factor}
             patchSize={config.patch_size}

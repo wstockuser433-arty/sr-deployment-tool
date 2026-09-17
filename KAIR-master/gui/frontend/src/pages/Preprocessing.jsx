@@ -5,6 +5,7 @@ import {
   detectPreprocessingStructure, listDirectory, fsImageUrl,
   compareImages,
   getPreprocessingProgress, getPreprocessingSummary,
+  startTileImagery,
 } from '../api/client'
 import { useJobContext } from '../context/JobContext'
 import LogConsole from '../components/LogConsole'
@@ -1155,6 +1156,234 @@ function RunPipelineForm({ onJobStart }) {
   )
 }
 
+
+// ── Compute Patches (Tile Imagery) Component ────────────────────────────────
+
+const DEFAULT_TILE = {
+  input_path: '',
+  output_dir: 'output_patches',
+  recursive: true,
+
+  tile_size: 512,
+  stride: 512,
+  drop_incomplete_edge_tiles: true,
+
+  output_format: 'png',
+  output_bands: null,
+  per_band_stretch: true,
+  rescale_tif: true,
+  png_stretch_percentiles: [2.0, 98.0],
+
+  nodata_value: 0,
+  max_nodata_fraction: 1.0,
+  min_variance: 0.0,
+}
+
+function TileImageryForm({ onJobStart }) {
+  const [form, setForm] = useState(DEFAULT_TILE)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [summary, setSummary] = useState(null)
+  const [sourceMeta, setSourceMeta] = useState(null)
+
+  const set = (path, value) => setForm((prev) => deepSet(prev, path, value))
+  const inputMeta = useImageMeta(form.input_path)
+
+  // Recompute the extraction summary whenever geometry changes.
+  useEffect(() => {
+    if (!inputMeta?.width || !inputMeta?.height) { setSummary(null); return }
+    if (!form.tile_size || !form.stride) { setSummary(null); return }
+    const t = setTimeout(() => {
+      getPreprocessingSummary({
+        width: inputMeta.width,
+        height: inputMeta.height,
+        hr_patch_size: form.tile_size,
+        stride: form.stride,
+      }).then(r => setSummary(r.data)).catch(() => setSummary(null))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [inputMeta?.width, inputMeta?.height, form.tile_size, form.stride])
+
+  // Mirror the source metadata so we can display it via ImageInfoCard.
+  useEffect(() => { setSourceMeta(inputMeta) }, [inputMeta])
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      // The backend expects a specific subset of the form fields (see
+      // TileImageryRequest). Strip output_bands when null so the auto-detect
+      // path is used.
+      const payload = { ...form }
+      if (payload.output_bands == null) delete payload.output_bands
+      const r = await startTileImagery(payload)
+      onJobStart(r.data.job_id)
+    } catch (err) {
+      setError(err.response?.data?.detail || String(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* ── Input / Output ── */}
+      <CollapsibleSection title="Input / Output Paths" defaultOpen>
+        <PathField
+          label="Input image or directory"
+          hint="single file, flat dir, or nested dir of images"
+          mode="files"
+          extensions=".tif,.tiff,.jp2,.png,.jpg,.jpeg,.bmp"
+          value={form.input_path}
+          onChange={(v) => set('input_path', v)}
+          placeholder="path/to/HR_image.tif"
+        />
+        {sourceMeta && <ImageInfoCard meta={sourceMeta} title="SOURCE IMAGE INFORMATION" />}
+
+        <PathField
+          label="Output directory"
+          mode="dirs"
+          value={form.output_dir}
+          onChange={(v) => set('output_dir', v)}
+          placeholder="output_tiles"
+        />
+
+        <BoolToggle
+          label="Recurse into subdirectories"
+          value={form.recursive}
+          onChange={(v) => set('recursive', v)}
+          tooltip="If enabled, subfolders are scanned too. Useful for Maxar / PRSS-style nested layouts."
+        />
+      </CollapsibleSection>
+
+      {/* ── Tile geometry ── */}
+      <CollapsibleSection title="Tile Geometry" defaultOpen>
+        <div className="grid-2">
+          <SelectField
+            label="Tile size (px)"
+            value={form.tile_size}
+            onChange={(v) => {
+              const n = parseInt(v)
+              set('tile_size', n)
+              if (form.stride === form.tile_size) set('stride', n)  // keep stride synced when it was equal
+            }}
+            options={[
+              { value: 256, label: '256 × 256' },
+              { value: 512, label: '512 × 512' },
+              { value: 1024, label: '1024 × 1024' },
+            ]}
+          />
+          <NumberField
+            label="Stride (px)"
+            value={form.stride}
+            onChange={(v) => set('stride', v)}
+            min={16}
+            step={16}
+            hint={form.stride === form.tile_size ? 'no overlap' : `${form.tile_size - form.stride}px overlap`}
+            tooltip="Step size between consecutive tile windows. Equal to tile size = no overlap; smaller = overlapping tiles."
+          />
+        </div>
+        <BoolToggle
+          label="Drop incomplete edge tiles"
+          value={form.drop_incomplete_edge_tiles}
+          onChange={(v) => set('drop_incomplete_edge_tiles', v)}
+          tooltip="If enabled, tiles that would fall on the image edge with fewer than the requested pixels are discarded. If disabled, they are zero-padded to full tile size."
+        />
+      </CollapsibleSection>
+
+      <PreprocessingSummaryCard summary={summary} />
+
+      {/* ── Output format ── */}
+      <CollapsibleSection title="Output" defaultOpen>
+        <SelectField
+          label="Output format"
+          value={form.output_format}
+          onChange={(v) => set('output_format', v)}
+          options={[
+            { value: 'png', label: 'PNG — 8-bit RGB, best for training' },
+            { value: 'jpg', label: 'JPG — 8-bit RGB, smaller files' },
+            { value: 'tif', label: 'GeoTIFF — preserves georeferencing' },
+            { value: 'auto', label: 'Auto — GeoTIFF if georeferenced, else PNG' },
+          ]}
+        />
+
+        {(form.output_format === 'png'
+          || form.output_format === 'jpg'
+          || form.output_format === 'tif'
+          || form.output_format === 'auto') && (
+          <>
+            <BoolToggle
+              label="Per-band percentile stretch"
+              value={form.per_band_stretch}
+              onChange={(v) => set('per_band_stretch', v)}
+              tooltip="Apply percentile stretch independently per band. Reduces colour cast when bands have very different dynamic ranges."
+            />
+            <ArrayEditor
+              label="Stretch percentiles [low, high]"
+              value={form.png_stretch_percentiles}
+              onChange={(v) => set('png_stretch_percentiles', v)}
+              integer={false}
+            />
+          </>
+        )}
+
+        {(form.output_format === 'tif' || form.output_format === 'auto') && (
+          <BoolToggle
+            label="Rescale GeoTIFF to 8-bit (for visualization)"
+            value={form.rescale_tif}
+            onChange={(v) => set('rescale_tif', v)}
+            tooltip="If enabled, GeoTIFF tiles are written as 8-bit after a percentile stretch. If disabled, the source data type and value range are preserved."
+          />
+        )}
+      </CollapsibleSection>
+
+      {/* ── Advanced Quality filters ── */}
+      <CollapsibleSection title="⚙ Advanced Quality Filters" defaultOpen={false}>
+        <div className="grid-2">
+          <NumberField
+            label="Max nodata fraction"
+            value={form.max_nodata_fraction}
+            onChange={(v) => set('max_nodata_fraction', v)}
+            min={0}
+            max={1}
+            step={0.01}
+            tooltip="Maximum fraction of nodata pixels allowed per tile. Tiles exceeding this are discarded. 1.0 disables the filter."
+          />
+          <NumberField
+            label="Min variance"
+            value={form.min_variance}
+            onChange={(v) => set('min_variance', v)}
+            min={0}
+            step={10}
+            tooltip="Minimum pixel variance threshold. Featureless tiles (uniform water, bare ground) are discarded. 0 disables the filter."
+          />
+        </div>
+        <NumberField
+          label="Nodata value"
+          value={form.nodata_value}
+          onChange={(v) => set('nodata_value', v)}
+        />
+      </CollapsibleSection>
+
+      {error && (
+        <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>
+      )}
+
+      <button
+        type="submit"
+        className="btn btn-primary full-width"
+        disabled={loading || !form.input_path}
+        style={{ marginTop: 8 }}
+      >
+        {loading ? 'Starting…' : '▶ Compute Patches'}
+      </button>
+    </form>
+  )
+}
+
+
+
 // ── Main Preprocessing page ─────────────────────────────────────────────────
 
 export default function Preprocessing() {
@@ -1253,6 +1482,7 @@ export default function Preprocessing() {
   const tabs = [
     { label: 'Pipeline A — Pleiades' },
     { label: 'Pipeline B — HR Degradation' },
+    { label: 'Compute Patches' },
     {
       label: hasClassResults ? 'Class Results' : 'Step Preview',
       badge: hasClassResults ? classResults.length : previewCount > 0 ? previewCount : null,
@@ -1322,6 +1552,7 @@ export default function Preprocessing() {
                       : { label: '⏸ Pause',  onClick: handlePause, disabled: jobDone || cancelled },
                   ]}
                   outputDir={progressSummary?.output_dir || null}
+                  progressFetcher={getPreprocessingProgress}
                   stageVocabulary={{
                     load: 'Loading scene',
                     decimate: 'Decimating overview',
@@ -1410,6 +1641,7 @@ export default function Preprocessing() {
                       : { label: '⏸ Pause',  onClick: handlePause, disabled: jobDone || cancelled },
                   ]}
                   outputDir={progressSummary?.output_dir || null}
+                  progressFetcher={getPreprocessingProgress}
                   stageVocabulary={{
                     load: 'Loading scene',
                     cloud: 'Cloud masking',
@@ -1462,8 +1694,79 @@ export default function Preprocessing() {
             </div>
           </div>
         </div>
-
+        {/* ── Compute Patches (Tile Imagery) ── */}
         <div style={{ display: activeTab === 2 ? 'block' : 'none' }}>
+          <div className="module-grid rise" style={{ animationDelay: '100ms' }}>
+            <div className="col">
+              <div className="animate-in">
+                <div style={{ marginBottom: 12 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600 }}>Compute Patch Tiles</span>
+                </div>
+                <ol style={{ color: 'var(--ink-3)', fontSize: 12.5, marginBottom: 20, lineHeight: 1.7, paddingLeft: 18 }}>
+                  <li>Load a single HR (or LR) satellite image, or a directory of them</li>
+                  <li>Slide a fixed-size window (default 512×512) across the scene</li>
+                  <li>Apply optional quality filters (nodata fraction, variance)</li>
+                  <li>Write each tile as PNG / JPG / GeoTIFF with matching filenames (patch000000, patch000001, …)</li>
+                  <li>Uses GPU for the percentile stretch when a CUDA device is available, otherwise CPU</li>
+                </ol>
+                <TileImageryForm onJobStart={handleJobStart} />
+
+                <InlineJobPanel
+                  jobId={jobId}
+                  running={!!jobId && !jobDone && !cancelled && !paused}
+                  paused={paused}
+                  cancelled={cancelled}
+                  onStop={handleStop}
+                  secondaryActions={[]}
+                  outputDir={progressSummary?.output_dir || null}
+                  progressFetcher={getPreprocessingProgress}
+                  stageVocabulary={{
+                    load:     'Scanning input',
+                    patch:    'Tiling image',
+                    save:     'Writing tiles',
+                    done:     'Done',
+                  }}
+                  runningLabel="Tiling"
+                  estimatedPatches={progressSummary?.total || null}
+                />
+              </div>
+            </div>
+            <div className="col" ref={logPanelRef}>
+              {jobId && (
+                <CollapsibleSection
+                  title={
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      Live Output
+                      <LiveOutputBadge
+                        status={
+                          cancelled ? 'cancelled'
+                          : paused  ? 'paused'
+                          : jobDone ? 'completed'
+                          :           'running'
+                        }
+                      />
+                    </span>
+                  }
+                  defaultOpen={false}
+                >
+                  <LogConsole
+                    domain="preprocessing"
+                    jobId={jobId}
+                    onStop={handleStop}
+                    onPreviewsChange={setPreviewMap}
+                    onLine={handleLogLine}
+                    onComplete={() => {
+                      if (jobIdRef.current !== jobId) return
+                      setJobDone(true)
+                    }}
+                    showControls={{ copy: true, pause: false, cancel: false, elapsed: false }}
+                  />
+                </CollapsibleSection>
+              )}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: activeTab === 3 ? 'block' : 'none' }}>
           <div className="rise" style={{ animationDelay: '80ms' }}>
             {hasClassResults && <ClassResultsPanel results={classResults} />}
             {previewCount > 0 && <StepPreviewPanel previews={previewMap} />}

@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 
-from ..schemas.preprocessing import Pipeline3Request, RunPipelineRequest, JobResponse
+from ..schemas.preprocessing import Pipeline3Request, RunPipelineRequest, JobResponse, TileImageryRequest
 from ..services import config_service, job_manager
 
 router = APIRouter(prefix="/api/preprocessing", tags=["preprocessing"])
@@ -569,6 +569,8 @@ def get_preprocessing_progress(job_id: str):
     last_line = ""
     classes_done = 0
     classes_seen = set()
+    tile_scenes_started = 0
+    tile_scenes_done = 0
 
     for raw in lines:
         line = raw.rstrip("\n")
@@ -605,12 +607,20 @@ def get_preprocessing_progress(job_id: str):
             elif 'starting patch extraction' in g: stage = 'patch'
             elif 'patch extraction complete' in g: stage = 'save'
             elif '=== processing' in g: stage = 'load'
+            elif 'starting patch extraction' in g: stage = 'patch'
+            elif 'starting tiling' in g: stage = 'patch'
+            elif 'patch extraction complete' in g: stage = 'save'
 
         if _CLASS_DONE_RE.search(line):
             classes_done += 1
         mc = _CLASS_START_RE.search(line)
         if mc:
             classes_seen.add(mc.group(1))
+
+        if line.startswith("[TILE_START]"):
+            tile_scenes_started += 1
+        if line.startswith("[TILE_DONE]"):
+            tile_scenes_done += 1
 
     # Percent is only defined once we know the denominator. Before the
     # first [PROGRESS] marker, we have no reliable total and MUST return
@@ -675,7 +685,7 @@ def get_preprocessing_progress(job_id: str):
         "job_id": job_id,
         "status": status,
         "stage": stage,
-        # "current": discarded,           # number of discard events seen
+        "current": current,           # number of discard events seen
         "total": total,                 # candidate window count
         "percent": pct,
         "saved": saved,
@@ -684,6 +694,8 @@ def get_preprocessing_progress(job_id: str):
         "output_dir": summary.get("output_dir")
                       or (summary.get("meta") or {}).get("output_dir"),
         "last_line": last_line,
+        "scenes_started": tile_scenes_started,
+        "scenes_done": tile_scenes_done,
     }
 
 
@@ -716,3 +728,49 @@ def preprocessing_summary(
         "patches_y": n_y,
         "total_patches": n_x * n_y,
     }
+
+
+# ── Compute Patches — tile_imagery.py ──────────────────────────────────────────────
+
+TILE_IMAGERY_SCRIPT = PROJECT_ROOT / "preprocessing_pipeline" / "tile_imagery.py"
+
+
+def _build_tile_imagery_config(req: TileImageryRequest) -> dict:
+    return {
+        "INPUT_PATH": req.input_path,
+        "OUTPUT_DIR": req.output_dir,
+        "SUPPORTED_EXTENSIONS": req.supported_extensions,
+        "RECURSIVE": req.recursive,
+        "TILE_SIZE": req.tile_size,
+        "STRIDE": req.stride,
+        "DROP_INCOMPLETE_EDGE_TILES": req.drop_incomplete_edge_tiles,
+        "OUTPUT_FORMAT": req.output_format,
+        "OUTPUT_BANDS": req.output_bands,
+        "PNG_STRETCH_PERCENTILES": req.png_stretch_percentiles,
+        "RESCALE_TIF": req.rescale_tif,
+        "PER_BAND_STRETCH": req.per_band_stretch,
+        "NODATA_VALUE": req.nodata_value,
+        "MAX_NODATA_FRACTION": req.max_nodata_fraction,
+        "MIN_VARIANCE": req.min_variance,
+        "GDAL_CACHE_MB": req.gdal_cache_mb,
+    }
+
+
+@router.post("/tile-imagery/start", response_model=JobResponse)
+async def start_tile_imagery(req: TileImageryRequest):
+    """Launch preprocessing_pipeline/tile_imagery.py."""
+    if not TILE_IMAGERY_SCRIPT.exists():
+        raise HTTPException(status_code=500, detail="tile_imagery.py not found.")
+
+    cfg = _build_tile_imagery_config(req)
+    config_path = TMP_DIR / f"tile_imagery_{abs(hash(req.input_path)) & 0xFFFFFF}.json"
+    config_service.save_json(cfg, config_path)
+
+    cmd = [PIPELINE_PYTHON, str(TILE_IMAGERY_SCRIPT), "--config", str(config_path)]
+    job_id = job_manager.create_job(
+        cmd=cmd, cwd=str(PROJECT_ROOT),
+        output_dir=req.output_dir,
+        meta={"mode": "tile_imagery"},
+    )
+    asyncio.create_task(job_manager.launch_job(job_id))
+    return JobResponse(job_id=job_id, status="pending")
