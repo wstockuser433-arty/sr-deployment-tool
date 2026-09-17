@@ -154,11 +154,14 @@ export default function InlineJobPanel({
   const meta = STATUS_META[uiStatus] || STATUS_META.running
 
 
-  const pct = uiStatus === 'running'
-    ? Math.min(100, Math.max(0, progress?.percent ?? 0))
-    : uiStatus === 'cancelled'
-      ? Math.min(100, Math.max(0, progress?.percent ?? 0))   // freeze at last value
-      : 100
+    // A percent is only meaningful when the backend has a real denominator
+  // (progress.total > 0). Before the first [PROGRESS] marker, `percent` may
+  // be null OR the backend may have fallen through to a default of 100 —
+  // both cases must render as "indeterminate", never as a full bar.
+  const hasRealProgress = progress?.total > 0 && progress?.percent != null
+  const pct = hasRealProgress
+    ? Math.min(100, Math.max(0, progress.percent))
+    : (uiStatus === 'running' ? 0 : 100)
 
   const fmtTime = (s) => {
     const m = Math.floor(s / 60)
@@ -320,24 +323,32 @@ export default function InlineJobPanel({
         height: 6, borderRadius: 3, background: 'var(--bg-2)',
         overflow: 'hidden', position: 'relative',
       }}>
-        {uiStatus === 'running' && progress?.percent == null && (
+        {/* Indeterminate shimmer while the backend has no real denominator */}
+        {uiStatus === 'running' && !hasRealProgress && (
           <div style={{
             position: 'absolute', inset: 0,
             background: 'linear-gradient(90deg, transparent, var(--cobalt-soft), transparent)',
             animation: 'inlinePanelShimmer 1.4s ease-in-out infinite',
           }} />
-        )} </div>
-      <div style={{
-          height: '100%', width: `${pct}%`,
-          background:
-            uiStatus === 'running'   ? 'linear-gradient(90deg, var(--cobalt-deep), #7aa9ff)'
-          : uiStatus === 'paused'    ? 'rgb(180,120,20)'
-          : uiStatus === 'cancelled' ? 'var(--ink-3)'
-          : uiStatus === 'failed'    ? 'var(--bad)'
-          :                            'var(--ok)',
-          transition: 'width 0.4s ease-out',
-          borderRadius: 3,
-      }} />
+        )}
+        {/* Determinate fill — rendered whenever we have a real percent OR
+        the job has reached a terminal state (so a completed run always
+        shows a full bar, even if the pipeline emitted no [PROGRESS]). */}
+        {(hasRealProgress || (!running && !paused)) && (
+          <div style={{
+            height: '100%',
+            width: hasRealProgress ? `${pct}%` : '100%',
+            background:
+              uiStatus === 'running'   ? 'linear-gradient(90deg, var(--cobalt-deep), #7aa9ff)'
+            : uiStatus === 'paused'    ? 'rgb(180,120,20)'
+            : uiStatus === 'cancelled' ? 'var(--ink-3)'
+            : uiStatus === 'failed'    ? 'var(--bad)'
+            :                            'var(--ok)',
+            transition: 'width 0.4s ease-out',
+            borderRadius: 3,
+          }} />
+        )}
+      </div>
 
       {/* Progress text row */}
       <div style={{
@@ -345,24 +356,30 @@ export default function InlineJobPanel({
         marginTop: 6, fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)',
       }}>
         <span>
-          {(() => {
-            const total = progress?.total
-            const disc  = progress?.current
-            if (total > 0 && disc > 0) {
-              return `${total.toLocaleString()} candidates · ${disc.toLocaleString()} discarded`
-            }
-            if (total > 0) return `${total.toLocaleString()} candidates planned`
-            if (estimatedPatches) return `~${estimatedPatches.toLocaleString()} candidates expected`
-            if (progress?.stage) return `${stages[progress.stage] || progress.stage}…`
-            return 'Initialising…'
-          })()}
+          {hasRealProgress
+            ? `Patch ${progress.current.toLocaleString()} / ${progress.total.toLocaleString()}`
+            : uiStatus === 'running'
+              ? (estimatedPatches
+                  ? `~${estimatedPatches.toLocaleString()} candidates expected`
+                  : progress?.stage
+                    ? `${stages[progress.stage] || progress.stage}…`
+                    : 'Starting patch extraction…')
+              : uiStatus === 'cancelled'
+                ? 'Stopped'
+                : uiStatus === 'paused'
+                  ? 'Paused'
+                  : `${progress?.saved?.toLocaleString?.() ?? ''} patches saved`.trim() || 'Complete'}
         </span>
         <span>
-          {progress?.percent != null
-            ? `${pct.toFixed(1)}%`
-            : uiStatus === 'running'
-              ? 'working…'
-              : `${pct.toFixed(1)}%`}
+          {uiStatus === 'running'
+            ? (hasRealProgress ? `${pct.toFixed(1)}%` : 'working…')
+            : uiStatus === 'cancelled'
+              ? 'stopped'
+              : uiStatus === 'paused'
+                ? 'paused'
+                : uiStatus === 'failed'
+                  ? 'failed'
+                  : 'done'}
         </span>
       </div>
 

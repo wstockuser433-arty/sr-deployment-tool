@@ -76,6 +76,27 @@ _PROJECT_ROOT = _SCRIPT_DIR.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+# ── Module logger ────────────────────────────────────────────────────────────
+# All pipeline messages go through this logger. Library chatter
+# (rasterio.env, GDAL, fiona, ...) is silenced in _setup_logging below so
+# the log stays readable and low-volume — crucial when the GUI parses it.
+_log = logging.getLogger("pipeline3")
+
+# Emit a progress line every _PROGRESS_EVERY_WINDOWS candidate windows so a
+# GUI can render a real patch counter without being flooded by per-patch
+# messages. One line per 25 windows = ~185 lines for a 4,624-window scene,
+# which is a reasonable balance between responsiveness and log volume.
+_PROGRESS_EVERY_WINDOWS = 25
+
+def _emit_progress(prefix: str, idx: int, total: int, saved: int) -> None:
+    """Emit a machine-parseable progress marker.
+
+    Format: ``[PROGRESS] <prefix> <idx>/<total> saved=<saved>``
+    The router-side parser matches ``\\[PROGRESS\\]\\s+(\\S+)\\s+(\\d+)/(\\d+)``
+    so keep this exact shape if you change it.
+    """
+    _log.info("[PROGRESS] %s %d/%d saved=%d", prefix, idx, total, saved)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MODULE 1 — CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
@@ -184,9 +205,9 @@ def build_config(config_path: Optional[str] = None) -> dict:
         with open(json_path, "r") as fh:
             json_cfg = json.load(fh)
         cfg.update(json_cfg)
-        logging.info("Loaded config overrides from: %s", json_path)
+        _log.info("Loaded config overrides from: %s", json_path)
     else:
-        logging.info(
+        _log.info(
             "No JSON config found at '%s' — using inline CONFIG defaults.", json_path
         )
 
@@ -294,7 +315,7 @@ def _read_decimated_overviews(
                 lr_dst[band_idx] = np.clip(resized, 0, 65535).astype(np.uint16)
     lr_overview = np.clip(np.transpose(lr_dst, (1, 2, 0)), 0, 32767).astype(np.uint16)
 
-    logging.info(
+    _log.info(
         "Decimated overview: full=%dx%d  overview=%dx%d  decim_scale=%.4f",
         hr_height, hr_width, out_h, out_w, decim_scale,
     )
@@ -324,7 +345,7 @@ def coregister_stage_a_orb(
     H                : np.ndarray (3,3) | None — homography in OVERVIEW pixel space, or None if skipped/failed.
     """
     if not cfg["COREG_A_ENABLED"]:
-        logging.info("Stage A (ORB) disabled — skipping.")
+        _log.info("Stage A (ORB) disabled — skipping.")
         return lr_small, None
 
     height, width = hr_small.shape[:2]
@@ -336,17 +357,17 @@ def coregister_stage_a_orb(
     kp_lr, des_lr     = orb.detectAndCompute(lr_gray, None)
 
     if des_hr is None or des_lr is None or len(kp_hr) < 4 or len(kp_lr) < 4:
-        logging.warning("Stage A: too few keypoints detected — skipping homography.")
+        _log.warning("Stage A: too few keypoints detected — skipping homography.")
         return lr_small, None
 
     matcher     = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
     raw_matches = matcher.knnMatch(des_lr, des_hr, k=2)
 
     good = [m for m, n in raw_matches if m.distance < cfg["COREG_A_MATCH_RATIO"] * n.distance]
-    logging.info("Stage A: %d good matches from %d raw pairs.", len(good), len(raw_matches))
+    _log.info("Stage A: %d good matches from %d raw pairs.", len(good), len(raw_matches))
 
     if len(good) < 4:
-        logging.warning("Stage A: fewer than 4 good matches — skipping homography.")
+        _log.warning("Stage A: fewer than 4 good matches — skipping homography.")
         return lr_small, None
 
     src_pts = np.float32([kp_lr[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
@@ -356,11 +377,11 @@ def coregister_stage_a_orb(
     )
 
     if H is None:
-        logging.warning("Stage A: RANSAC failed to find a valid homography — skipping.")
+        _log.warning("Stage A: RANSAC failed to find a valid homography — skipping.")
         return lr_small, None
 
     n_inliers = int(inlier_mask.sum()) if inlier_mask is not None else 0
-    logging.info("Stage A: homography accepted with %d RANSAC inliers.", n_inliers)
+    _log.info("Stage A: homography accepted with %d RANSAC inliers.", n_inliers)
 
     lr_warped = np.zeros_like(lr_small)
     for c in range(3):
@@ -370,7 +391,7 @@ def coregister_stage_a_orb(
             borderMode=cv2.BORDER_CONSTANT, borderValue=0,
         ), 0, 65535).astype(np.uint16)
 
-    logging.info("Stage A complete — overview warped with estimated homography.")
+    _log.info("Stage A complete — overview warped with estimated homography.")
     return lr_warped, H
 
 
@@ -389,7 +410,7 @@ def coregister_stage_b_phase(
     shift            : (shift_row, shift_col) in OVERVIEW pixel units — (0.0, 0.0) if skipped.
     """
     if not cfg["COREG_B_ENABLED"]:
-        logging.info("Stage B (Phase Correlation) disabled — skipping.")
+        _log.info("Stage B (Phase Correlation) disabled — skipping.")
         return lr_small, (0.0, 0.0)
 
     height, width = hr_small.shape[:2]
@@ -401,7 +422,7 @@ def coregister_stage_b_phase(
     )
     shift_row, shift_col = float(shift[0]), float(shift[1])
 
-    logging.info(
+    _log.info(
         "Stage B: sub-pixel shift  row=%.4f px  col=%.4f px  "
         "(error=%.4f, upsample_factor=%d)",
         shift_row, shift_col, error, cfg["COREG_B_UPSAMPLE_FACTOR"],
@@ -418,7 +439,7 @@ def coregister_stage_b_phase(
             borderMode=cv2.BORDER_CONSTANT, borderValue=0,
         ), 0, 65535).astype(np.uint16)
 
-    logging.info("Stage B complete — sub-pixel translation applied.")
+    _log.info("Stage B complete — sub-pixel translation applied.")
     return lr_shifted, (shift_row, shift_col)
 
 
@@ -464,7 +485,7 @@ def coregister_stage_c_patch_ecc(
             hr_gray, lr_gray, warp_init, warp_mode, criteria
         )
     except cv2.error as exc:
-        logging.debug("Stage C ECC failed on patch: %s", exc)
+        _log.debug("Stage C ECC failed on patch: %s", exc)
         return (None, False, 0.0) if cfg["COREG_C_DISCARD_ON_FAIL"] else (lr_patch, False, 0.0)
 
     H, W       = hr_patch.shape[:2]
@@ -509,12 +530,12 @@ def estimate_global_transform(
     overviews = _read_decimated_overviews(hr_path, lr_path, hr_bands, lr_bands, max_dim)
     decim_scale = overviews["decim_scale"]
 
-    logging.info("=== MODULE 3 — Stage A: Coarse Global (ORB) ===")
+    _log.info("=== MODULE 3 — Stage A: Coarse Global (ORB) ===")
     lr_after_a, H_small = coregister_stage_a_orb(
         overviews["hr_overview"], overviews["lr_overview"], cfg
     )
 
-    logging.info("=== MODULE 3 — Stage B: Sub-pixel Global (Phase Correlation) ===")
+    _log.info("=== MODULE 3 — Stage B: Sub-pixel Global (Phase Correlation) ===")
     lr_after_b, (shift_row, shift_col) = coregister_stage_b_phase(
         overviews["hr_overview"], lr_after_a, cfg
     )
@@ -694,7 +715,7 @@ def estimate_percentile_thresholds(
         pooled = np.concatenate(samples[c]) if samples[c] else np.array([], dtype=np.float32)
 
         if pooled.size == 0:
-            logging.warning("Channel %d has no valid sampled pixels; thresholds default to (0, 1).", c)
+            _log.warning("Channel %d has no valid sampled pixels; thresholds default to (0, 1).", c)
             thresholds[c] = (0.0, 1.0)
             continue
 
@@ -702,11 +723,11 @@ def estimate_percentile_thresholds(
         v_max = float(np.percentile(pooled, p_hi))
 
         if v_max == v_min:
-            logging.warning("Channel %d has zero dynamic range in sample; widening by 1.", c)
+            _log.warning("Channel %d has zero dynamic range in sample; widening by 1.", c)
             v_max = v_min + 1.0
 
         thresholds[c] = (v_min, v_max)
-        logging.info(
+        _log.info(
             "Percentile thresholds  channel %d  p%.1f=%.1f  p%.1f=%.1f  (n=%d sampled pixels)",
             c, p_lo, v_min, p_hi, v_max, pooled.size,
         )
@@ -835,7 +856,7 @@ def fit_radiometric_regression(
             sampled_blocks.append((r, c, hr_block, lr_block, rmse))
 
     accepted = [b for b in sampled_blocks if b[4] <= rmse_thresh]
-    logging.info(
+    _log.info(
         "Radiometric regression — block RMSE filter: %d / %d sampled blocks accepted "
         "(%.1f %%), %d rejected (RMSE > %.1f)",
         len(accepted), len(sampled_blocks),
@@ -844,7 +865,7 @@ def fit_radiometric_regression(
     )
 
     if not accepted:
-        logging.warning(
+        _log.warning(
             "All %d sampled blocks exceeded the RMSE threshold. Falling back to using "
             "every sampled block for regression. Consider raising RADIOMETRIC_RMSE_THRESHOLD "
             "or RADIOMETRIC_N_FIT_WINDOWS.", len(sampled_blocks),
@@ -868,7 +889,7 @@ def fit_radiometric_regression(
     hr_pixels = np.concatenate(hr_samples_list, axis=0)   # (n_total, 3)
     n_total   = lr_pixels.shape[0]
 
-    logging.info(
+    _log.info(
         "Radiometric regression — sampled %d pixel pairs from %d accepted blocks.",
         n_total, len(accepted),
     )
@@ -880,18 +901,18 @@ def fit_radiometric_regression(
 
     weights, residuals, rank, sv = np.linalg.lstsq(V, S, rcond=None)      # weights: (4, 3)
 
-    logging.info(
+    _log.info(
         "Radiometric regression fitted.  Matrix rank: %d  Residual sum: %s",
         rank, f"{residuals.sum():.4f}" if residuals.size > 0 else "N/A (underdetermined)",
     )
-    logging.info(
+    _log.info(
         "Regression weights (4×3 — rows: R_coeff, G_coeff, B_coeff, bias):\n%s",
         np.array2string(weights, precision=5, suppress_small=True),
     )
 
     lr_pred    = V @ weights
     train_rmse = float(np.sqrt(np.mean((lr_pred - S) ** 2)))
-    logging.info("Regression training RMSE (on sampled pixels): %.4f", train_rmse)
+    _log.info("Regression training RMSE (on sampled pixels): %.4f", train_rmse)
 
     return weights
 
@@ -999,7 +1020,7 @@ def estimate_histogram_match_lut(
     for c in range(3):
         lut[c] = _build_match_lut(lr_hist[c], hr_hist[c])
 
-    logging.info("Stage 5B histogram-match LUT estimated from %d sampled windows.", n_sample_windows)
+    _log.info("Stage 5B histogram-match LUT estimated from %d sampled windows.", n_sample_windows)
     return lut
 
 
@@ -1205,7 +1226,7 @@ def extract_and_save_patches(
     skipped_ssim      = 0
     sample_patches: List[Tuple[np.ndarray, np.ndarray]] = []
 
-    logging.info(
+    _log.info(
         "Starting patch extraction: %d candidate windows "
         "(stride=%d, hr_patch=%d, lr_patch=%d, Stage C ECC=%s, "
         "MIN_ECC_SCORE=%.2f, MIN_SSIM=%.2f)",
@@ -1217,12 +1238,17 @@ def extract_and_save_patches(
 
     pbar = tqdm(total=total_windows, desc=f"Extracting {patch_prefix}", unit="win")
     window_idx = 0
+    # Emit an INFO progress marker every _PROGRESS_EVERY_WINDOWS windows
+    # and once at the very end, so a GUI can show a live patch counter.
+    _emit_progress(patch_prefix, 0, total_windows, saved_count)    
 
     with rasterio.open(hr_path) as hr_src, rasterio.open(lr_path) as lr_src:
         for row in row_starts:
             for col in col_starts:
                 pbar.update(1)
                 window_idx += 1
+                if window_idx % _PROGRESS_EVERY_WINDOWS == 0:
+                    _emit_progress(patch_prefix, window_idx, total_windows, saved_count)
 
                 hr_raw = np.transpose(
                     _raw_to_uint16(hr_src.read(
@@ -1267,7 +1293,7 @@ def extract_and_save_patches(
                 # Quality gate: ECC correlation coefficient
                 min_ecc_score = cfg.get("MIN_ECC_SCORE", 0.0)
                 if cc_score < min_ecc_score:
-                    logging.debug(
+                    _log.debug(
                         "Patch (%d,%d) discarded: ECC score %.4f < %.4f",
                         row, col, cc_score, min_ecc_score,
                     )
@@ -1281,7 +1307,7 @@ def extract_and_save_patches(
                     lr_gray_patch = _to_gray_uint8(lr_refined)
                     patch_ssim    = ssim(hr_gray_patch, lr_gray_patch, data_range=255)
                     if patch_ssim < min_ssim:
-                        logging.debug(
+                        _log.debug(
                             "Patch (%d,%d) discarded: SSIM %.4f < %.4f",
                             row, col, patch_ssim, min_ssim,
                         )
@@ -1314,8 +1340,12 @@ def extract_and_save_patches(
 
     pbar.close()
 
+    # Final marker — always emitted so the GUI sees the true 100% state
+    # regardless of whether total_windows is a multiple of the stride.
+    _emit_progress(patch_prefix, total_windows, total_windows, saved_count)
+
     total_skipped = skipped_nodata + skipped_variance + skipped_ecc + skipped_ecc_score + skipped_ssim
-    logging.info(
+    _log.info(
         "Patch extraction complete:\n"
         "  Saved              : %d\n"
         "  Skipped (nodata)   : %d\n"
@@ -1358,7 +1388,7 @@ def extract_patches_hr_only(
     sample_patches : list of (hr_patch_uint8, lr_patch_uint8), for the contact-sheet preview.
     """
     if not cfg.get("DEGRADATION_ENABLED", True):
-        logging.warning(
+        _log.warning(
             "'%s' is HR-only and DEGRADATION_ENABLED=False — skipping "
             "(no LR available to pair with).", patch_prefix,
         )
@@ -1389,7 +1419,7 @@ def extract_patches_hr_only(
     skipped_variance = 0
     sample_patches: List[Tuple[np.ndarray, np.ndarray]] = []
 
-    logging.info(
+    _log.info(
         "Starting HR-only degradation extraction for '%s': %d candidate "
         "windows (degradation_type=%s, stride=%d, hr_patch=%d)",
         patch_prefix, total_windows, deg_type, stride, hr_patch_size,
@@ -1397,11 +1427,14 @@ def extract_patches_hr_only(
 
     pbar = tqdm(total=total_windows, desc=f"Degrading {patch_prefix}", unit="win")
     window_idx = 0
+    _emit_progress(patch_prefix, 0, total_windows, saved_count)
     with rasterio.open(hr_path) as hr_src:
         for row in row_starts:
             for col in col_starts:
                 pbar.update(1)
                 window_idx += 1
+                if window_idx % _PROGRESS_EVERY_WINDOWS == 0:
+                    _emit_progress(patch_prefix, window_idx, total_windows, saved_count)
 
                 hr_raw = np.transpose(
                     _raw_to_uint16(hr_src.read(
@@ -1433,8 +1466,9 @@ def extract_patches_hr_only(
                 saved_count += 1
 
     pbar.close()
+    _emit_progress(patch_prefix, total_windows, total_windows, saved_count)
 
-    logging.info(
+    _log.info(
         "HR-only degradation extraction for '%s' complete: saved=%d, "
         "skipped_nodata=%d, skipped_variance=%d / %d windows",
         patch_prefix, saved_count, skipped_nodata, skipped_variance, total_windows,
@@ -1477,7 +1511,7 @@ def extract_patches_lr_only(
     lr_out_dir.mkdir(parents=True, exist_ok=True)
 
     if lr_height < lr_patch_size or lr_width < lr_patch_size:
-        logging.warning(
+        _log.warning(
             "'%s' (%dx%d) is smaller than LR_PATCH_SIZE=%d — skipping.",
             patch_prefix, lr_height, lr_width, lr_patch_size,
         )
@@ -1493,7 +1527,7 @@ def extract_patches_lr_only(
     skipped_variance = 0
     sample_patches: List[Tuple[Optional[np.ndarray], np.ndarray]] = []
 
-    logging.info(
+    _log.info(
         "Starting LR-only extraction for '%s': %d candidate windows "
         "(stride=%d, lr_patch=%d)",
         patch_prefix, total_windows, stride, lr_patch_size,
@@ -1501,11 +1535,14 @@ def extract_patches_lr_only(
 
     pbar = tqdm(total=total_windows, desc=f"Extracting {patch_prefix} (LR-only)", unit="win")
     window_idx = 0
+    _emit_progress(patch_prefix, 0, total_windows, saved_count)
     with rasterio.open(lr_path) as lr_src:
         for row in row_starts:
             for col in col_starts:
                 pbar.update(1)
                 window_idx += 1
+                if window_idx % _PROGRESS_EVERY_WINDOWS == 0:
+                    _emit_progress(patch_prefix, window_idx, total_windows, saved_count)
 
                 lr_raw = np.transpose(
                     _raw_to_uint16(lr_src.read(
@@ -1534,8 +1571,9 @@ def extract_patches_lr_only(
                 saved_count += 1
 
     pbar.close()
+    _emit_progress(patch_prefix, total_windows, total_windows, saved_count)
 
-    logging.info(
+    _log.info(
         "LR-only extraction for '%s' complete: saved=%d, skipped_nodata=%d, "
         "skipped_variance=%d / %d windows",
         patch_prefix, saved_count, skipped_nodata, skipped_variance, total_windows,
@@ -1549,7 +1587,7 @@ def extract_patches_lr_only(
 #
 # Lightweight JPEG previews written at key stages so the GUI can show visual
 # feedback while a job runs. Each save_* call logs a "PREVIEW_READY <file>
-# <stage> <scene>" marker via the normal logging.info() pipe (already
+# <stage> <scene>" marker via the normal _log.info() pipe (already
 # captured by job_manager's stdout reader) so the frontend can discover new
 # previews without polling a separate endpoint. Preview generation must never
 # break the actual pipeline run, so failures here are caught and logged, not
@@ -1572,7 +1610,7 @@ def _read_single_overview(path: str, bands: list, max_dim: int) -> np.ndarray:
 
 
 def _emit_preview_marker(rel_path: Path, stage: str, scene_name: str) -> None:
-    logging.info("PREVIEW_READY %s %s %s", rel_path.as_posix(), stage, scene_name)
+    _log.info("PREVIEW_READY %s %s %s", rel_path.as_posix(), stage, scene_name)
 
 
 def _downscale_for_preview(arr_uint8: np.ndarray, max_dim: int) -> np.ndarray:
@@ -1613,7 +1651,7 @@ def save_preview(
         _emit_preview_marker(Path(filename), stage, scene_name)
         return path
     except Exception as exc:
-        logging.warning("Could not save preview '%s' for '%s': %s", stage, scene_name, exc)
+        _log.warning("Could not save preview '%s' for '%s': %s", stage, scene_name, exc)
         return None
 
 
@@ -1679,7 +1717,7 @@ def save_band_wise_overview(
         _emit_preview_marker(Path(filename), stage, scene_name)
         return path_out
     except Exception as exc:
-        logging.warning("Could not save band-wise overview '%s' for '%s': %s", stage, scene_name, exc)
+        _log.warning("Could not save band-wise overview '%s' for '%s': %s", stage, scene_name, exc)
         return None
 
 
@@ -1724,7 +1762,7 @@ def save_patch_contact_sheet(
         _emit_preview_marker(Path(filename), "patches", scene_name)
         return path
     except Exception as exc:
-        logging.warning("Could not save patch contact sheet for '%s': %s", scene_name, exc)
+        _log.warning("Could not save patch contact sheet for '%s': %s", scene_name, exc)
         return None
 
 
@@ -1825,7 +1863,7 @@ def resolve_work_items(cfg: dict) -> List[dict]:
         n_paired  = sum(1 for it in items if it["hr_path"] and it["lr_path"])
         n_hr_only = sum(1 for it in items if it["hr_path"] and not it["lr_path"])
         n_lr_only = sum(1 for it in items if it["lr_path"] and not it["hr_path"])
-        logging.info(
+        _log.info(
             "Directory scan complete: %d paired, %d HR-only (will degrade), "
             "%d LR-only (standalone). Total scenes = %d",
             n_paired, n_hr_only, n_lr_only, len(items),
@@ -1865,7 +1903,7 @@ def process_item(item: dict, cfg: dict) -> dict:
     output_dir = Path(cfg["OUTPUT_DIR"])
 
     if hr_path and lr_path:
-        logging.info("=== Processing '%s' (paired HR+LR) ===", name)
+        _log.info("=== Processing '%s' (paired HR+LR) ===", name)
         hr_bands = cfg.get("HR_RGB_BANDS", [1, 2, 3])
         lr_bands = cfg.get("LR_RGB_BANDS", [3, 2, 1])
 
@@ -1911,7 +1949,7 @@ def process_item(item: dict, cfg: dict) -> dict:
                 radiometric_weights, cfg,
             )
         else:
-            logging.info("MODULE 5B: Histogram matching disabled (RADIOMETRIC_POST_HIST_MATCH=False).")
+            _log.info("MODULE 5B: Histogram matching disabled (RADIOMETRIC_POST_HIST_MATCH=False).")
             histogram_lut = np.tile(np.arange(256, dtype=np.uint8), (3, 1))
 
         # Preview 4: radiometric + histogram correction applied to one
@@ -1932,7 +1970,7 @@ def process_item(item: dict, cfg: dict) -> dict:
             center_lr = apply_histogram_lut(center_lr, histogram_lut)
             save_preview(center_lr, output_dir, name, "radiometric", cfg)
         except Exception as exc:
-            logging.warning("Could not build radiometric preview for '%s': %s", name, exc)
+            _log.warning("Could not build radiometric preview for '%s': %s", name, exc)
 
         n_saved, sample_patches = extract_and_save_patches(
             str(hr_path), str(lr_path), hr_profile, hr_height, hr_width, hr_bands, lr_bands,
@@ -1943,7 +1981,7 @@ def process_item(item: dict, cfg: dict) -> dict:
         return {"name": name, "mode": "paired", "n_saved": n_saved}
 
     if hr_path and not lr_path:
-        logging.info("=== Processing '%s' (HR-only — synthesizing LR) ===", name)
+        _log.info("=== Processing '%s' (HR-only — synthesizing LR) ===", name)
         hr_bands = cfg.get("HR_RGB_BANDS", [1, 2, 3])
         with rasterio.open(str(hr_path)) as hr_src:
             hr_height, hr_width = hr_src.height, hr_src.width
@@ -1958,7 +1996,7 @@ def process_item(item: dict, cfg: dict) -> dict:
             save_preview(apply_percentile_scaling(overview, hr_thresholds), output_dir, name, "load_hr", cfg)
             save_band_wise_overview(str(hr_path), output_dir, name, "bands_hr", cfg)
         except Exception as exc:
-            logging.warning("Could not build load preview for '%s': %s", name, exc)
+            _log.warning("Could not build load preview for '%s': %s", name, exc)
 
         n_saved, sample_patches = extract_patches_hr_only(
             str(hr_path), hr_bands, hr_height, hr_width, hr_thresholds, cfg, patch_prefix=name,
@@ -1967,7 +2005,7 @@ def process_item(item: dict, cfg: dict) -> dict:
         return {"name": name, "mode": "hr_only_degraded", "n_saved": n_saved}
 
     if lr_path and not hr_path:
-        logging.info("=== Processing '%s' (LR-only — no HR available) ===", name)
+        _log.info("=== Processing '%s' (LR-only — no HR available) ===", name)
         lr_bands = cfg.get("LR_RGB_BANDS", [3, 2, 1])
         with rasterio.open(str(lr_path)) as lr_src:
             lr_height, lr_width = lr_src.height, lr_src.width
@@ -1982,7 +2020,7 @@ def process_item(item: dict, cfg: dict) -> dict:
             save_preview(apply_percentile_scaling(overview, lr_thresholds), output_dir, name, "load_lr", cfg)
             save_band_wise_overview(str(lr_path), output_dir, name, "bands_lr", cfg)
         except Exception as exc:
-            logging.warning("Could not build load preview for '%s': %s", name, exc)
+            _log.warning("Could not build load preview for '%s': %s", name, exc)
 
         n_saved, sample_patches = extract_patches_lr_only(
             str(lr_path), lr_bands, lr_height, lr_width, lr_thresholds, cfg, patch_prefix=name,
@@ -2001,9 +2039,15 @@ def _setup_logging(output_dir: str) -> None:
     """
     Configure logging to both stdout and a timestamped log file in output_dir.
 
-    The file handler captures everything from DEBUG level upward so that
-    per-patch debug messages (block RMSE values, ECC/SSIM discard reasons)
-    are preserved for post-run inspection even when the console only shows INFO.
+    Only the pipeline's own logger and a small allow-list of third-party
+    loggers are propagated; the noisy debug chatter emitted by rasterio's
+    internals (rasterio.env, rasterio._io, rasterio._base, rasterio._env,
+    rasterio._filepath) is silenced at WARNING level so the log stays
+    readable — for a GUI-driven run those lines are pure noise and there
+    are thousands of them per scene.
+
+    Third-party loggers we still want to see (e.g. our degradation stack
+    from preprocessing_pipeline) can be added to _ALLOWED_THIRD_PARTY.
     """
     import time
 
@@ -2016,23 +2060,50 @@ def _setup_logging(output_dir: str) -> None:
     fmt     = "%(asctime)s  %(levelname)-8s  %(message)s"
     datefmt = "%H:%M:%S"
 
+    # Silence the rasterio/GDAL firehose at the source. Setting these to
+    # WARNING (rather than NOTSET) is the only way to stop rasterio's own
+    # loggers from emitting thousands of DEBUG lines during a run.
+    for noisy in (
+        "rasterio",
+        "rasterio.env",
+        "rasterio._env",
+        "rasterio._io",
+        "rasterio._base",
+        "rasterio._filepath",
+        "GDAL",
+        "fiona",
+    ):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     # Console handler — INFO and above only
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
 
-    # File handler — DEBUG and above (captures per-patch discard reasons)
+    # File handler — DEBUG and above (captures per-patch discard reasons
+    # and any explicitly-emitted DEBUG markers from pipeline3.py itself,
+    # but not the rasterio firehose above).
     file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
 
+    # Attach handlers to the pipeline's own logger, not the root logger.
+    # This is what stops every third-party library's DEBUG chatter from
+    # being captured by the file handler as well.
+    pipeline_logger = logging.getLogger("pipeline3")
+    pipeline_logger.setLevel(logging.DEBUG)
+    pipeline_logger.propagate = False  # do NOT duplicate into root
+    pipeline_logger.handlers.clear()
+    pipeline_logger.addHandler(console_handler)
+    pipeline_logger.addHandler(file_handler)
+
+    # Root logger stays quiet. Anything a third-party lib logs goes
+    # nowhere unless it explicitly opts into the "pipeline3" logger.
     root = logging.getLogger()
-    root.setLevel(logging.DEBUG)
-    root.addHandler(console_handler)
-    root.addHandler(file_handler)
+    root.setLevel(logging.WARNING)
+    root.handlers.clear()
 
-    logging.info("Log file: %s", log_path)
-
+    pipeline_logger.info("Log file: %s", log_path)
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -2047,20 +2118,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Step 0: Build config first so we know OUTPUT_DIR before any logging
-    # Use a minimal bootstrap logger until the file handler is ready
-    logging.basicConfig(level=logging.WARNING)
+    # Step 0: Build config first so we know OUTPUT_DIR before any logging.
+    # Emit bootstrap messages via the module logger (whose handlers are not
+    # yet installed) — they land on stderr only via Python's "handler of
+    # last resort", which prints once per call and does not duplicate.
     cfg = build_config(args.config)
 
     # Step 0b: Set up full logging (stdout + file in OUTPUT_DIR)
     _setup_logging(cfg["OUTPUT_DIR"])
 
-    logging.info("Configuration:\n%s", "\n".join(f"  {k}: {v}" for k, v in cfg.items()))
+    _log.info("Configuration:\n%s", "\n".join(f"  {k}: {v}" for k, v in cfg.items()))
 
     # Step 1: Resolve HR_IMAGE_PATH / LR_IMAGE_PATH into one or more scenes,
     # classifying each as paired / HR-only / LR-only.
     work_items = resolve_work_items(cfg)
-    logging.info("Resolved %d scene(s) to process.", len(work_items))
+    _log.info("Resolved %d scene(s) to process.", len(work_items))
 
     # GDAL keeps an internal block-read cache shared across every open
     # dataset in the process; left at its default (historically a fraction
@@ -2077,18 +2149,18 @@ def main() -> None:
             try:
                 result = process_item(item, cfg)
             except Exception as exc:
-                logging.error("Failed to process '%s': %s", item["name"], exc, exc_info=True)
+                _log.error("Failed to process '%s': %s", item["name"], exc, exc_info=True)
                 result = {"name": item["name"], "mode": "error", "n_saved": 0}
             results.append(result)
             total_saved += result["n_saved"]
 
-    logging.info("=" * 60)
-    logging.info(
+    _log.info("=" * 60)
+    _log.info(
         "Pipeline complete. %d scene(s) processed, %d patch(es) written to: %s",
         len(results), total_saved, cfg["OUTPUT_DIR"],
     )
     for r in results:
-        logging.info("  %-50s mode=%-18s saved=%d", r["name"], r["mode"], r["n_saved"])
+        _log.info("  %-50s mode=%-18s saved=%d", r["name"], r["mode"], r["n_saved"])
 
 
 if __name__ == "__main__":

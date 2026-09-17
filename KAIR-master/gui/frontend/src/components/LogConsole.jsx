@@ -75,7 +75,19 @@ function formatElapsed(s) {
   return `${sec}s`
 }
 
-export default function LogConsole({ domain, jobId, onStop, onPause, onResume, onComplete, onLine, onPreviewsChange, previewStages }) {
+
+export default function LogConsole({
+  domain,
+  jobId,
+  onStop,
+  onPause,
+  onResume,
+  onPreviewsChange,
+  onLine,
+  onComplete,
+  previewStages,
+  showControls = { copy: true, pause: true, cancel: true, elapsed: true },
+}) {
   const stagesForStrip = previewStages || PREVIEW_STAGES
   const [lines, setLines] = useState([])
   const [status, setStatus] = useState('pending')
@@ -177,18 +189,19 @@ export default function LogConsole({ domain, jobId, onStop, onPause, onResume, o
             {isPaused && <span style={{ marginRight: 4, fontSize: 10 }}>⏸</span>}
             {status}
           </div>
-          {elapsed > 0 && (
+          {showControls.elapsed && (
             <span className="mono" style={{
-              fontSize: 11, color: isLive ? 'var(--cobalt-deep)' : 'var(--ink-3)',
-              background: 'var(--surface-2)', border: '1px solid var(--line-2)',
-              borderRadius: 4, padding: '2px 7px',
-            }}>
-              ⏱ {formatElapsed(elapsed)}
-            </span>
+            fontSize: 11, color: isLive ? 'var(--cobalt-deep)' : 'var(--ink-3)',
+            background: 'var(--surface-2)', border: '1px solid var(--line-2)',
+            borderRadius: 4, padding: '2px 7px',
+          }}>
+            ⏱ {formatElapsed(elapsed)}
+          </span>
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{lines.length} lines</span>
+          {showControls.copy && (
           <button
             className="btn"
             style={{ padding: '4px 10px', fontSize: 11 }}
@@ -202,16 +215,18 @@ export default function LogConsole({ domain, jobId, onStop, onPause, onResume, o
           >
             {copied ? '✓ Copied!' : '⎘ Copy log'}
           </button>
-          {(isLive || isPaused) && (onPause || onResume) && (
-            <button
+          )}
+          
+            {showControls.pause && (
+              <button
               className="btn"
               style={{ padding: '5px 12px', fontSize: 12 }}
               onClick={isPaused ? onResume : onPause}
             >
               {isPaused ? '▶ Resume' : '⏸ Pause'}
             </button>
-          )}
-          {(isLive || isPaused) && onStop && (
+            )}  
+          {showControls.cancel && (
             <button
               className="btn"
               style={{ padding: '5px 12px', fontSize: 12, borderColor: 'var(--bad)', color: 'var(--bad)' }}

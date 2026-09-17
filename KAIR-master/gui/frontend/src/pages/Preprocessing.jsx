@@ -285,7 +285,7 @@ const DEFAULT_P3 = {
 const DEFAULT_RP = {
   task: 'preprocess_sr_x2', pipeline_mode: 'hr_only',
   degradation_type: 'satellite', scale: 2, n_channels: 3, seed: 42, num_workers: 1,
-  input_hr_dir: '', input_lr_dir: '', output_hr_dir: 'trainsets/hr', output_lr_dir: 'trainsets/lr',
+  input_hr_dir: '', input_lr_dir: '', output_hr_dir: 'output_patches/pipelineB/hr', output_lr_dir: 'output_patches/pipelineB/lr',
   supported_extensions: ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'],
   save_format: 'png', save_hr_copy: true,
   normalize_enabled: false, normalize_low_percentile: 2.0, normalize_high_percentile: 98.0,
@@ -1270,7 +1270,7 @@ export default function Preprocessing() {
       <div className="content">
         <h1 className="editorial rise" style={{ fontSize: 32, marginBottom: 10 }}>Dataset Preparation</h1>
         <p className="rise" style={{ color: 'var(--ink-2)', marginBottom: 24, maxWidth: 600 }}>
-          Prepare HR/LR training pairs from raw satellite imagery or degrade existing HR patches.
+          Prepare HR/LR pairs from raw satellite imagery or degrade existing HR patches.
         </p>
 
         <div className="mode-tabs rise" style={{ marginBottom: 28, animationDelay: '80ms' }}>
@@ -1292,7 +1292,7 @@ export default function Preprocessing() {
           ))}
         </div>
 
-                <div style={{ display: activeTab === 0 ? 'block' : 'none' }}>
+          <div style={{ display: activeTab === 0 ? 'block' : 'none' }}>
           <div className="module-grid rise" style={{ animationDelay: '100ms' }}>
             <div className="col">
               <div className="animate-in">
@@ -1326,7 +1326,7 @@ export default function Preprocessing() {
                     load: 'Loading scene',
                     decimate: 'Decimating overview',
                     'stage a': 'Stage A — ORB',
-                    'stage b': 'Stage B — Phase',
+                    'stage b': 'Stage B — Phase Correlation',
                     'stage c': 'Stage C — ECC',
                     radiometric: 'Radiometric normalisation',
                     histogram: 'Histogram matching',
@@ -1371,6 +1371,8 @@ export default function Preprocessing() {
                       if (jobIdRef.current !== jobId) return
                       setJobDone(true)
                     }}
+                    showControls={{ copy: true, pause: false, 
+                      cancel: false, elapsed: false }}
                   />
                 </CollapsibleSection>
               )}
@@ -1452,6 +1454,8 @@ export default function Preprocessing() {
                       if (jobIdRef.current !== jobId) return
                       setJobDone(true)
                     }}
+                    showControls={{ copy: true, pause: false, 
+                      cancel: false, elapsed: false }}
                   />
                 </CollapsibleSection>
               )}
