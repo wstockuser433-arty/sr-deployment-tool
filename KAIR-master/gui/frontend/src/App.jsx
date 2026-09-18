@@ -5,7 +5,7 @@ import Inference from './pages/Inference'
 import Preprocessing from './pages/Preprocessing'
 import { checkHealth } from './api/client'
 import { JobProvider } from './context/JobContext'
-import suparcoLogo from '../assets/suparco logo.jpg'
+import suparcoLogo from '../assets/suparco-logo.jpg'
 
 const SENSOR_PROFILES = [
   {
@@ -231,7 +231,7 @@ export default function App() {
 
       {/* Sidebar */}
       <aside className="sidebar">
-        <div className="sb-brand">
+        <div className="sb-brand flex justify-center items-center gap-3">
           <img src={suparcoLogo} alt="SUPARCO" className="sb-logo" />
           <h1>Super-Resolution</h1>
         </div>

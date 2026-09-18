@@ -121,6 +121,7 @@ class Pipeline3Request(BaseModel):
     min_variance: float = 120.0
     min_ecc_score: float = 0.78
     min_ssim: float = 0.60
+    radiometric_enabled: bool = True
     radiometric_block_size: int = 256
     radiometric_rmse_threshold: float = 35.0
     radiometric_n_samples: int = 150000

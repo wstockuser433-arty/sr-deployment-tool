@@ -341,6 +341,7 @@ def _build_pipeline3_config(req: Pipeline3Request) -> dict:
         "COREG_C_EPS": req.coreg_c.eps,
         "COREG_C_WARP_MODE": req.coreg_c.warp_mode,
         "COREG_C_DISCARD_ON_FAIL": req.coreg_c.discard_on_fail,
+        "RADIOMETRIC_ENABLED": req.radiometric_enabled,
         "RADIOMETRIC_BLOCK_SIZE": req.radiometric_block_size,
         "RADIOMETRIC_RMSE_THRESHOLD": req.radiometric_rmse_threshold,
         "RADIOMETRIC_N_SAMPLES": req.radiometric_n_samples,
@@ -364,12 +365,16 @@ async def _run_pipeline3_with_split(job_id: str, req: Pipeline3Request, config_p
     """Launch pipeline3.py and then optionally do train/test split."""
     await job_manager.launch_job(job_id)
     job = job_manager.get_job(job_id)
-    if job and job.status.value == "completed" and req.train_test_split:
+    if job is None:
+        return
+
+    split_requested = getattr(req, "train_test_split", False)
+    if job.status.value == "completed" and split_requested:
         try:
-            test_out = str(_abs(req.test_output_dir)) if req.test_output_dir else ""
+            test_out = str(_abs(req.test_output_dir)) if getattr(req, "test_output_dir", "") else ""
             _do_train_test_split(
                 _abs(req.output_dir),
-                req.train_ratio,
+                getattr(req, "train_ratio", 0.8),
                 test_out,
             )
             job.logs.append(
@@ -434,18 +439,39 @@ def _build_run_pipeline_config(req: RunPipelineRequest) -> dict:
 
 
 async def _run_pipeline_with_split(job_id: str, req: RunPipelineRequest, config_path: Path):
+    """Launch RunPipeline.py and then optionally do train/test split."""
     await job_manager.launch_job(job_id)
     job = job_manager.get_job(job_id)
-    if job and job.status.value == "completed" and req.train_test_split:
+    if job is None:
+        return
+
+    split_requested = getattr(req, "train_test_split", False)
+    if job.status.value == "completed" and split_requested:
         try:
-            _do_run_pipeline_split(
+            _do_train_test_split(
                 _abs(req.output_hr_dir),
                 _abs(req.output_lr_dir),
-                req.train_ratio,
+                getattr(req, "train_ratio", 0.8),
             )
-            job.logs.append(f"[gui] Train/test split complete (ratio={req.train_ratio})")
+            job.logs.append(
+                f"[gui] Train/test split complete (ratio={req.train_ratio})")
         except Exception as e:
             job.logs.append(f"[gui] Split error: {e}")
+
+
+# async def _run_pipeline_with_split(job_id: str, req: RunPipelineRequest, config_path: Path):
+#     await job_manager.launch_job(job_id)
+#     job = job_manager.get_job(job_id)
+#     if job and job.status.value == "completed" and req.train_test_split:
+#         try:
+#             _do_run_pipeline_split(
+#                 _abs(req.output_hr_dir),
+#                 _abs(req.output_lr_dir),
+#                 req.train_ratio,
+#             )
+#             job.logs.append(f"[gui] Train/test split complete (ratio={req.train_ratio})")
+#         except Exception as e:
+#             job.logs.append(f"[gui] Split error: {e}")
 
 
 @router.post("/run-pipeline/start", response_model=JobResponse)

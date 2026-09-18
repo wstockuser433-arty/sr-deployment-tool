@@ -241,12 +241,13 @@ const BAND_PRESETS = [
 
 // ── Pipeline A defaults ────────────────────────────────────────────────────────
 const DEFAULT_P3 = {
-  hr_image_path: '', lr_image_path: '', output_dir: 'output_patches',
+  hr_image_path: '', lr_image_path: '', output_dir: 'Preprocessing-output/PipelineA',
   supported_extensions: ['.tif', '.tiff', '.jp2', '.png', '.jpg', '.jpeg', '.bmp'],
   hr_rgb_bands: [1, 2, 3], lr_rgb_bands: [3, 2, 1],
   scale_factor: 2, hr_patch_size: 256, stride: 256,
   nodata_value: 0, saturated_value: 32767, clip_percentiles: [2.0, 98.0],
   max_nodata_fraction: 0.05, min_variance: 120.0, min_ecc_score: 0.78, min_ssim: 0.60,
+  radiometric_enabled: true,
   radiometric_block_size: 256, radiometric_rmse_threshold: 35.0,
   radiometric_n_samples: 150000, radiometric_post_hist_match: true,
   coreg_a: { enabled: true, max_features: 8000, match_ratio: 0.75, ransac_thresh: 4.0, downsample: 0.25 },
@@ -286,7 +287,7 @@ const DEFAULT_P3 = {
 const DEFAULT_RP = {
   task: 'preprocess_sr_x2', pipeline_mode: 'hr_only',
   degradation_type: 'satellite', scale: 2, n_channels: 3, seed: 42, num_workers: 1,
-  input_hr_dir: '', input_lr_dir: '', output_hr_dir: 'output_patches/pipelineB/hr', output_lr_dir: 'output_patches/pipelineB/lr',
+  input_hr_dir: '', input_lr_dir: '', output_hr_dir: 'Preprocessing-output/PipelineB/hr', output_lr_dir: 'Preprocessing-output/PipelineB/lr',
   supported_extensions: ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'],
   save_format: 'png', save_hr_copy: true,
   normalize_enabled: false, normalize_low_percentile: 2.0, normalize_high_percentile: 98.0,
@@ -582,7 +583,7 @@ function Pipeline3Form({ onJobStart }) {
 
         <PathField label="Output directory" mode="dirs"
           value={form.output_dir} onChange={(v) => set('output_dir', v)}
-          placeholder="output_patches" />
+          placeholder="Preprocessing-output" />
         {pairPsnr && (
           <div style={{
             background: 'var(--surface)', border: '1px solid var(--line-2)',
@@ -815,16 +816,23 @@ function Pipeline3Form({ onJobStart }) {
 
       {/* ── Advanced Radiometric ── */}
       <CollapsibleSection title="⚙ Advanced Radiometric Normalisation" defaultOpen={false}>
+        <BoolToggle
+          label="Enable radiometric regression"
+          value={form.radiometric_enabled}
+          onChange={(v) => set('radiometric_enabled', v)}
+          tooltip="Master switch for the radiometric normalisation module. When off, the LR patch is passed straight from percentile scaling into extraction without any per-scene regression fit."
+        />
+        <BoolToggle label="Post histogram matching (correct NIR leakage)"
+          value={form.radiometric_post_hist_match}
+          onChange={(v) => set('radiometric_post_hist_match', v)}
+          tooltip="Applies histogram matching after linear regression to correct residual colour / NIR band leakage between spectral channels."
+        />
         <div className="grid-2">
           <NumberField label="RMSE threshold" value={form.radiometric_rmse_threshold}
             onChange={(v) => set('radiometric_rmse_threshold', v)} step={1} />
           <NumberField label="Block size" value={form.radiometric_block_size}
             onChange={(v) => set('radiometric_block_size', v)} min={64} step={64} />
         </div>
-        <BoolToggle label="Post histogram matching (correct NIR leakage)"
-          value={form.radiometric_post_hist_match}
-          onChange={(v) => set('radiometric_post_hist_match', v)}
-          tooltip="Applies histogram matching after linear regression to correct residual colour / NIR band leakage between spectral channels." />
       </CollapsibleSection>
 
       {/* ── Train/test split ── */}
@@ -863,6 +871,12 @@ function RunPipelineForm({ onJobStart }) {
   const detectDebounceRef = useRef(null)
   const [bandPreset, setBandPreset] = useState('rgb')
   const [customBandCount, setCustomBandCount] = useState(3)
+
+  // NEW: metadata for the selected HR path. Returns null for a directory
+  // (the /image-info endpoint rejects dirs), which is exactly what we want —
+  // the info card only renders for single-file inputs.
+  const hrMeta = useImageMeta(form.input_hr_dir)
+  const lrMeta = useImageMeta(form.input_lr_dir)
 
   useEffect(() => {
     clearTimeout(detectDebounceRef.current)
@@ -981,6 +995,7 @@ function RunPipelineForm({ onJobStart }) {
           extensions=".png,.jpg,.jpeg,.tif,.tiff,.bmp,.jp2"
           value={form.input_hr_dir}
           onChange={(v) => set('input_hr_dir', v)} />
+          {hrMeta && <ImageInfoCard meta={hrMeta} title="HR IMAGE INFORMATION" />}
         {classStructure && classStructure.is_classed && (
           <div style={{
             background: 'var(--cobalt-soft)', border: '1px solid var(--cobalt-deep)',
@@ -1009,10 +1024,13 @@ function RunPipelineForm({ onJobStart }) {
           )
         })()}
         {form.pipeline_mode === 'hr_lr_pair' && (
-          <PathField label="Input LR path" hint="file, flat dir, or dir with class subfolders" mode="files"
+          <>
+            <PathField label="Input LR path" hint="file, flat dir, or dir with class subfolders" mode="files"
             extensions=".png,.jpg,.jpeg,.tif,.tiff,.bmp,.jp2"
             value={form.input_lr_dir}
             onChange={(v) => set('input_lr_dir', v)} />
+            {lrMeta && <ImageInfoCard meta={lrMeta} title="LR IMAGE INFORMATION" />}
+          </>
         )}
         <div className="grid-2">
           <PathField label="Output HR dir" mode="dirs" value={form.output_hr_dir}
@@ -1161,7 +1179,7 @@ function RunPipelineForm({ onJobStart }) {
 
 const DEFAULT_TILE = {
   input_path: '',
-  output_dir: 'output_patches',
+  output_dir: 'Preprocessing-output/comp-output-patches',
   recursive: true,
 
   tile_size: 512,

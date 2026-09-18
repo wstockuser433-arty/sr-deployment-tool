@@ -156,6 +156,7 @@ CONFIG: dict = {
     "RADIOMETRIC_BLOCK_SIZE":      256,
     "RADIOMETRIC_RMSE_THRESHOLD":  35.0,   # ← tightened from 40 (dates are only ~19 days apart → very similar scenes)
     "RADIOMETRIC_N_SAMPLES":       150_000, # more samples = stabler fit
+    "RADIOMETRIC_ENABLED":        True,     # master switch for the whole radiometric module
     "RADIOMETRIC_POST_HIST_MATCH": True,    # ← KEEP ENABLED (corrects NIR leakage & S-curve differences between Neo & 1A)
 
     # ── Windowed I/O tuning — controls how much is sampled for each estimate ─
@@ -1923,54 +1924,79 @@ def process_item(item: dict, cfg: dict) -> dict:
             tuple(cfg["CLIP_PERCENTILES"]), cfg,
         )
 
-        # Previews 1-3: loaded HR/LR overviews + Stage A/B coregistration,
-        # all reusing the small overview arrays already read above — no
-        # extra I/O beyond percentile-scaling them for display.
+        # Load previews — always useful, tied to nothing that can be toggled off.
         save_preview(apply_percentile_scaling(diagnostics["hr_overview"], hr_thresholds),
                      output_dir, name, "load_hr", cfg)
         save_band_wise_overview(str(hr_path), output_dir, name, "bands_hr", cfg)
         save_preview(apply_percentile_scaling(diagnostics["lr_overview"], lr_thresholds),
                      output_dir, name, "load_lr", cfg)
         save_band_wise_overview(str(lr_path), output_dir, name, "bands_lr", cfg)
-        save_preview(apply_percentile_scaling(diagnostics["lr_overview_after_a"], lr_thresholds),
-                     output_dir, name, "coreg_a", cfg)
-        save_preview(apply_percentile_scaling(diagnostics["lr_overview_after_b"], lr_thresholds),
-                     output_dir, name, "coreg_b", cfg)
 
-        radiometric_weights = fit_radiometric_regression(
-            str(hr_path), str(lr_path), hr_profile, hr_height, hr_width,
-            hr_bands, lr_bands, residual_homography, hr_thresholds, lr_thresholds, cfg,
-        )
+        # Coreg previews — only meaningful when the corresponding stage
+        # actually ran. Producing "Coreg — ORB" when Stage A is disabled
+        # would show the identity output and mislead the user into thinking
+        # coregistration ran.
+        if cfg.get("COREG_A_ENABLED", True):
+            save_preview(apply_percentile_scaling(diagnostics["lr_overview_after_a"], lr_thresholds),
+                         output_dir, name, "coreg_a", cfg)
+        if cfg.get("COREG_B_ENABLED", True):
+            save_preview(apply_percentile_scaling(diagnostics["lr_overview_after_b"], lr_thresholds),
+                         output_dir, name, "coreg_b", cfg)
 
-        if cfg.get("RADIOMETRIC_POST_HIST_MATCH", True):
+        if cfg.get("RADIOMETRIC_ENABLED", True):
+            radiometric_weights = fit_radiometric_regression(
+                str(hr_path), str(lr_path), hr_profile, hr_height, hr_width,
+                hr_bands, lr_bands, residual_homography, hr_thresholds, lr_thresholds, cfg,
+            )
+        else:
+            _log.info("MODULE 5: Radiometric regression disabled — using identity weights.")
+        
+            # Identity: HR_RGB = LR_RGB + 0. Shape (4, 3) to match fit_radiometric_regression's output.
+            radiometric_weights = np.array([
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, 0.0],
+            ], dtype=np.float32)        
+
+        if cfg.get("RADIOMETRIC_ENABLED", True) and cfg.get("RADIOMETRIC_POST_HIST_MATCH", True):
             histogram_lut = estimate_histogram_match_lut(
                 str(hr_path), str(lr_path), hr_profile, hr_height, hr_width,
                 hr_bands, lr_bands, residual_homography, hr_thresholds, lr_thresholds,
                 radiometric_weights, cfg,
             )
         else:
-            _log.info("MODULE 5B: Histogram matching disabled (RADIOMETRIC_POST_HIST_MATCH=False).")
+            reason = (
+                "RADIOMETRIC_ENABLED=False" if not cfg.get("RADIOMETRIC_ENABLED", True)
+                else "RADIOMETRIC_POST_HIST_MATCH=False"
+            )
+            _log.info("MODULE 5B: Histogram matching disabled (%s) — using identity LUT.", reason)
             histogram_lut = np.tile(np.arange(256, dtype=np.uint8), (3, 1))
 
         # Preview 4: radiometric + histogram correction applied to one
         # representative scene-center window — a visualisation-only
         # approximation; the real per-patch correction during extraction
         # below is exact for every patch, not just this one preview window.
-        try:
-            patch_size  = cfg["HR_PATCH_SIZE"]
-            center_row  = max(0, (hr_height - patch_size) // 2)
-            center_col  = max(0, (hr_width - patch_size) // 2)
-            with rasterio.open(str(lr_path)) as lr_src:
-                center_lr_raw = _read_lr_window_to_hr_grid(
-                    lr_src, lr_bands, hr_profile, residual_homography,
-                    center_row, center_col, patch_size, patch_size,
-                )
-            center_lr = apply_percentile_scaling(center_lr_raw, lr_thresholds)
-            center_lr = apply_radiometric_weights(center_lr, radiometric_weights)
-            center_lr = apply_histogram_lut(center_lr, histogram_lut)
-            save_preview(center_lr, output_dir, name, "radiometric", cfg)
-        except Exception as exc:
-            _log.warning("Could not build radiometric preview for '%s': %s", name, exc)
+        # Radiometric preview — only meaningful when at least one of the
+        # two radiometric sub-stages actually ran. With both off, the
+        # "corrected" window is byte-identical to the plain percentile-
+        # scaled input and the preview would be a no-op.
+        if cfg.get("RADIOMETRIC_ENABLED", True) or cfg.get("RADIOMETRIC_POST_HIST_MATCH", True):
+            try:
+                patch_size  = cfg["HR_PATCH_SIZE"]
+                center_row  = max(0, (hr_height - patch_size) // 2)
+                center_col  = max(0, (hr_width - patch_size) // 2)
+                with rasterio.open(str(lr_path)) as lr_src:
+                    center_lr_raw = _read_lr_window_to_hr_grid(
+                        lr_src, lr_bands, hr_profile, residual_homography,
+                        center_row, center_col, patch_size, patch_size,
+                    )
+                center_lr = apply_percentile_scaling(center_lr_raw, lr_thresholds)
+                center_lr = apply_radiometric_weights(center_lr, radiometric_weights)
+                center_lr = apply_histogram_lut(center_lr, histogram_lut)
+                save_preview(center_lr, output_dir, name, "radiometric", cfg)
+            except Exception as exc:
+                _log.warning("Could not build radiometric preview for '%s': %s", name, exc)
 
         n_saved, sample_patches = extract_and_save_patches(
             str(hr_path), str(lr_path), hr_profile, hr_height, hr_width, hr_bands, lr_bands,

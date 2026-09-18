@@ -54,6 +54,7 @@ testsets/
 output_patches/
 *_test/
 _previews/
+Preprocessing-output/
 
 # Trained model checkpoints (train logs/options are tracked, weights are not)
 superresolution/*/models/
