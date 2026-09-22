@@ -148,6 +148,8 @@ function ClassesModal({ onClose }) {
   )
 }
 
+const DEFAULT_ROUTE = '/inference'
+
 const NAV_ITEMS = [
   {
     to: '/preprocessing',
@@ -162,22 +164,22 @@ const NAV_ITEMS = [
     ),
   },
   {
-    to: '/training',
-    label: 'Training',
-    icon: (
-      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-        <path d="M2.5 12.5L7.5 4.5L12.5 12.5" stroke="currentColor" strokeLinejoin="round" />
-        <path d="M4 10H11" stroke="currentColor" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-  {
     to: '/inference',
     label: 'Inference',
     icon: (
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
         <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" />
         <path d="M12.5 12.5L9.5 9.5" stroke="currentColor" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    to: '/training',
+    label: 'Training',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <path d="M2.5 12.5L7.5 4.5L12.5 12.5" stroke="currentColor" strokeLinejoin="round" />
+        <path d="M4 10H11" stroke="currentColor" strokeLinejoin="round" />
       </svg>
     ),
   },
@@ -231,10 +233,10 @@ export default function App() {
 
       {/* Sidebar */}
       <aside className="sidebar">
-        <div className="sb-brand flex justify-center items-center gap-3">
+        <NavLink to={DEFAULT_ROUTE} className="sb-brand flex justify-center items-center gap-3" style={{ textDecoration: 'none', color: 'inherit' }}>
           <img src={suparcoLogo} alt="SUPARCO" className="sb-logo" />
           <h1>Super-Resolution</h1>
-        </div>
+        </NavLink>
         <nav className="sb-nav">
           <div className="sb-sec">Workflows</div>
           {NAV_ITEMS.map((item) => (
@@ -334,7 +336,7 @@ export default function App() {
 
       {/* Main content — all pages stay mounted; only visibility changes */}
       <main className="main">
-        {location.pathname === '/' && <Navigate to="/training" replace />}
+        {location.pathname === '/' && <Navigate to={DEFAULT_ROUTE} replace />}
         <div style={{ display: location.pathname === '/training' ? 'block' : 'none' }}>
           <Training />
         </div>
