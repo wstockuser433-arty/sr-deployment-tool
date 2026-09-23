@@ -962,7 +962,7 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
       setError(err.response?.data?.detail || String(err))
     } finally { setLoading(false) }
   }
-  const runInFlight = !!jobId && !jobDone && !cancelled && !paused
+  const runInFlight = !!jobId && !jobDone && !cancelled
   const handleLogLine = (line) => { allLinesRef.current.push(line) }
   const handleComplete = () => {
     // Ignore terminal events for a job we no longer own.
@@ -1195,7 +1195,7 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
     } finally { setLoading(false) }
   }
 
-  const runInFlight = !!jobId && !jobDone && !cancelled && !paused
+  const runInFlight = !!jobId && !jobDone && !cancelled
 
   const handleLogLine = (line) => { 
     if (jobIdRef.current !== jobId) return
@@ -1457,7 +1457,7 @@ function LROnlyTab({ tasks, optionsFiles, jobId, setJobId }) {
     } finally { setLoading(false) }
   }
 
-  const runInFlight = !!jobId && !jobDone && !cancelled && !paused
+  const runInFlight = !!jobId && !jobDone && !cancelled
 
   const resultImages = jobDone && jobId ? [
     { label: 'LR Input', url: getRawResultImageUrl(jobId, 'lr_display.png') },
