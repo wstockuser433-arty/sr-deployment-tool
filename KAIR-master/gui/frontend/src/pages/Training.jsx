@@ -146,6 +146,8 @@ export default function Training() {
   const allLinesRef = useRef([])
   const startTimeRef = useRef(null)
 
+  const runInFlight = !!jobId && !jobDone && !cancelled
+
   const set = (path, value) => setForm((prev) => deepSet(prev, path, value))
 
   const applyBands = (presetKey, customN = customBandCount) => {
@@ -426,8 +428,9 @@ export default function Training() {
                 <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>
               )}
 
-              <button type="submit" className="btn btn-primary full-width" disabled={loading} style={{ marginTop: 8 }}>
-                {loading ? 'Starting…' : `▶ Start ${mode.toUpperCase()} Training`}
+              <button type="submit" className="btn btn-primary full-width"
+                disabled={loading || runInFlight} style={{ marginTop: 8 }}>
+                {loading ? 'Starting…' : runInFlight ? 'Training…' : '▶ Start Training'}
               </button>
             </form>
           </div>

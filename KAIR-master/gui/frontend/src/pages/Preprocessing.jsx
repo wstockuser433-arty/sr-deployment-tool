@@ -375,7 +375,7 @@ function PreprocessingSummaryCard({ summary }) {
 
 // ── Pipeline A Component ─────────────────────────────────────────────────────
 
-function Pipeline3Form({ onJobStart }) {
+function Pipeline3Form({ onJobStart, runInFlight = false }) {
   const [form, setForm] = useState(DEFAULT_P3)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -853,8 +853,9 @@ function Pipeline3Form({ onJobStart }) {
 
       {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
 
-      <button type="submit" className="btn btn-primary full-width" disabled={loading} style={{ marginTop: 8 }}>
-        {loading ? 'Starting…' : '▶ Run Preprocessing'}
+      <button type="submit" className="btn btn-primary full-width"
+        disabled={loading || runInFlight} style={{ marginTop: 8 }}>
+        {loading ? 'Starting…' : runInFlight ? 'Running…' : '▶ Run Preprocessing'}
       </button>
     </form>
   )
@@ -862,7 +863,7 @@ function Pipeline3Form({ onJobStart }) {
 
 // ── Pipeline B Component ─────────────────────────────────────────────────────
 
-function RunPipelineForm({ onJobStart }) {
+function RunPipelineForm({ onJobStart, runInFlight = false }) {
   const [form, setForm] = useState(DEFAULT_RP)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -1167,8 +1168,9 @@ function RunPipelineForm({ onJobStart }) {
 
       {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
 
-      <button type="submit" className="btn btn-primary full-width" disabled={loading} style={{ marginTop: 8 }}>
-        {loading ? 'Starting…' : '▶ Run Preprocessing'}
+      <button type="submit" className="btn btn-primary full-width"
+        disabled={loading || runInFlight} style={{ marginTop: 8 }}>
+        {loading ? 'Starting…' : runInFlight ? 'Running…' : '▶ Run Preprocessing'}
       </button>
     </form>
   )
@@ -1197,7 +1199,7 @@ const DEFAULT_TILE = {
   min_variance: 0.0,
 }
 
-function TileImageryForm({ onJobStart }) {
+function TileImageryForm({ onJobStart, runInFlight = false }) {
   const [form, setForm] = useState(DEFAULT_TILE)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -1388,13 +1390,9 @@ function TileImageryForm({ onJobStart }) {
         <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>
       )}
 
-      <button
-        type="submit"
-        className="btn btn-primary full-width"
-        disabled={loading || !form.input_path}
-        style={{ marginTop: 8 }}
-      >
-        {loading ? 'Starting…' : '▶ Compute Patches'}
+      <button type="submit" className="btn btn-primary full-width"
+        disabled={loading || runInFlight || !form.input_path} style={{ marginTop: 8 }}>
+        {loading ? 'Starting…' : runInFlight ? 'Running…' : '▶ Compute Patches'}
       </button>
     </form>
   )
@@ -1417,6 +1415,7 @@ export default function Preprocessing() {
   const [progressSummary, setProgressSummary] = useState(null)
   const jobIdRef = useRef(null)
   const logPanelRef = useRef(null)
+  const runInFlight = !!jobId && !jobDone && !cancelled && !paused
 
   const handleStop = async () => {
     setCancelled(true)
@@ -1556,7 +1555,7 @@ export default function Preprocessing() {
                   <li>Sliding-window patch extraction with quality filters (variance, nodata, SSIM, ECC)</li>
                   <li>Optional train/test split of extracted patches</li>
                 </ol>
-                <Pipeline3Form onJobStart={handleJobStart} />
+                <Pipeline3Form onJobStart={handleJobStart} runInFlight={runInFlight} />
 
                 <InlineJobPanel
                   jobId={jobId}
@@ -1645,7 +1644,7 @@ export default function Preprocessing() {
                   <li>Save HR and LR images to output directories in chosen format (PNG / TIF / JPG)</li>
                   <li>Optional train/test split of saved images</li>
                 </ol>
-                <RunPipelineForm onJobStart={handleJobStart} />
+                <RunPipelineForm onJobStart={handleJobStart} runInFlight={runInFlight} />
 
                 <InlineJobPanel
                   jobId={jobId}
@@ -1727,7 +1726,7 @@ export default function Preprocessing() {
                   <li>Write each tile as PNG / JPG / GeoTIFF with matching filenames (patch000000, patch000001, …)</li>
                   <li>Uses GPU for the percentile stretch when a CUDA device is available, otherwise CPU</li>
                 </ol>
-                <TileImageryForm onJobStart={handleJobStart} />
+                <TileImageryForm onJobStart={handleJobStart} runInFlight={runInFlight} />
 
                 <InlineJobPanel
                   jobId={jobId}

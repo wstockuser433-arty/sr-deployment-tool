@@ -931,6 +931,7 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
   const [progressSummary, setProgressSummary] = useState(null)   // { output_width, output_height, total_patches }
 
   const jobIdRef = useRef(null)
+  
 
   const handleSubmit = async (e) => {
 
@@ -961,7 +962,7 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
       setError(err.response?.data?.detail || String(err))
     } finally { setLoading(false) }
   }
-
+  const runInFlight = !!jobId && !jobDone && !cancelled && !paused
   const handleLogLine = (line) => { allLinesRef.current.push(line) }
   const handleComplete = () => {
     // Ignore terminal events for a job we no longer own.
@@ -1021,8 +1022,8 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
           </CollapsibleSection>
           {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <button type="submit" className="btn btn-primary full-width"
-            disabled={loading || (modelSource === 'auto' && !selectedTask)}>
-            {loading ? 'Starting…' : '▶ Run Super-Resolution'}
+            disabled={loading || runInFlight || (modelSource === 'auto' && !selectedTask)}>
+            {loading ? 'Starting…' : runInFlight ? 'Running…' : '▶ Run Super-Resolution'}
           </button>
 
           <InlineJobPanel
@@ -1194,6 +1195,8 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
     } finally { setLoading(false) }
   }
 
+  const runInFlight = !!jobId && !jobDone && !cancelled && !paused
+
   const handleLogLine = (line) => { 
     if (jobIdRef.current !== jobId) return
     allLinesRef.current.push(line) 
@@ -1289,8 +1292,8 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
 
           {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <button type="submit" className="btn btn-primary full-width"
-            disabled={loading || !config.lr_path || !config.hr_path || (modelSource === 'auto' && !selectedTask)}>
-            {loading ? 'Starting…' : '▶ Run Super-Resolution'}
+            disabled={loading || runInFlight || !config.lr_path || !config.hr_path || (modelSource === 'auto' && !selectedTask)}>
+            {loading ? 'Starting…' : runInFlight ? 'Running…' : '▶ Run Super-Resolution'}
           </button>
 
           <InlineJobPanel
@@ -1454,6 +1457,8 @@ function LROnlyTab({ tasks, optionsFiles, jobId, setJobId }) {
     } finally { setLoading(false) }
   }
 
+  const runInFlight = !!jobId && !jobDone && !cancelled && !paused
+
   const resultImages = jobDone && jobId ? [
     { label: 'LR Input', url: getRawResultImageUrl(jobId, 'lr_display.png') },
     { label: 'SR Output', url: getRawResultImageUrl(jobId, 'sr_display.png') },
@@ -1506,8 +1511,8 @@ function LROnlyTab({ tasks, optionsFiles, jobId, setJobId }) {
 
           {error && <div style={{ color: 'var(--bad)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <button type="submit" className="btn btn-primary full-width"
-            disabled={loading || !config.lr_path || (modelSource === 'auto' && !selectedTask)}>
-            {loading ? 'Starting…' : '▶ Run Super-Resolution'}
+            disabled={loading || runInFlight || !config.lr_path || (modelSource === 'auto' && !selectedTask)}>
+            {loading ? 'Starting…' : runInFlight ? 'Running…' : '▶ Run Super-Resolution'}
           </button>
 
           <InlineJobPanel
@@ -1564,34 +1569,37 @@ function LROnlyTab({ tasks, optionsFiles, jobId, setJobId }) {
             />
           </CollapsibleSection>
         )}
-        {jobDone && resultImages.length > 0 && (
-          <div className="card" style={{ marginTop: 16 }}>
-            <div className="card-title">Results</div>
-            <ImageViewer images={resultImages} />
-            {jobId && (
-              <ImageCompareSlider
-                lrUrl={getRawResultImageUrl(jobId, 'lr_display.png')}
-                srUrl={getRawResultImageUrl(jobId, 'sr_display.png')}
-                title="LR ↔ SR Comparison" />
-            )}
-            <BandImageViewer jobId={jobId} nBands={config.lr_bands.length}
-              lrBands={config.lr_bands} paired={false} />
-          </div>
-        )}
-        {!jobId && (
-          <div className="card">
-            <div className="card-title">About</div>
-            <p className="text-muted text-sm" style={{ lineHeight: 1.6 }}>
-              Runs SwinIR on a single LR image with no HR ground truth. No metrics are
-              computed — only the LR input and SR output are saved and displayed.
-              Useful for real-world inference on unlabelled satellite imagery.
-            </p>
-            <p className="text-muted text-sm" style={{ lineHeight: 1.6, marginTop: 10 }}>
-              Supports GeoTIFF, JP2, PNG, and other standard image formats.
-              Band selection applies only to multi-band geospatial files.
-            </p>
-          </div>
-        )}
+        <CollapsibleSection title="Visual Assessment (5-layer QA)" defaultOpen={false}>
+          {jobDone && resultImages.length > 0 && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="card-title">Results</div>
+              <ImageViewer images={resultImages} />
+              {jobId && (
+                <ImageCompareSlider
+                  lrUrl={getRawResultImageUrl(jobId, 'lr_display.png')}
+                  srUrl={getRawResultImageUrl(jobId, 'sr_display.png')}
+                  title="LR ↔ SR Comparison" />
+              )}
+              <BandImageViewer jobId={jobId} nBands={config.lr_bands.length}
+                lrBands={config.lr_bands} paired={false} />
+            </div>
+          )}
+          {!jobId && (
+            <div className="card">
+              <div className="card-title">About</div>
+              <p className="text-muted text-sm" style={{ lineHeight: 1.6 }}>
+                Runs SwinIR on a single LR image with no HR ground truth. No metrics are
+                computed — only the LR input and SR output are saved and displayed.
+                Useful for real-world inference on unlabelled satellite imagery.
+              </p>
+              <p className="text-muted text-sm" style={{ lineHeight: 1.6, marginTop: 10 }}>
+                Supports GeoTIFF, JP2, PNG, and other standard image formats.
+                Band selection applies only to multi-band geospatial files.
+              </p>
+            </div>
+          )}
+        </CollapsibleSection>
+        
       </div>
     </div>
   )
