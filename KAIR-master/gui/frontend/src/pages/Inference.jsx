@@ -1081,6 +1081,8 @@ function PatchedTab({ tasks, optionsFiles, jobId, setJobId }) {
                 if (jobIdRef.current !== jobId) return
                 setJobDone(true)
               }}
+              showControls={{ copy: true, pause: false, 
+                      cancel: false, elapsed: false }}
             />
           </CollapsibleSection>
         )}
@@ -1345,6 +1347,8 @@ function RawPairedTab({ tasks, optionsFiles, jobId, setJobId }) {
                 if (jobIdRef.current !== jobId) return
                 setJobDone(true)
               }}
+              showControls={{ copy: true, pause: false, 
+                      cancel: false, elapsed: false }}
             />
           </CollapsibleSection>
         )}
@@ -1555,6 +1559,8 @@ function LROnlyTab({ tasks, optionsFiles, jobId, setJobId }) {
                 if (jobIdRef.current !== jobId) return
                 setJobDone(true)
               }}
+              showControls={{ copy: true, pause: false, 
+                      cancel: false, elapsed: false }}
             />
           </CollapsibleSection>
         )}
