@@ -48,92 +48,7 @@ export default function InlineJobPanel({
     startedAtRef.current = cached ?? Date.now()
     _START_TIMES.set(jobId, startedAtRef.current)
   }
-
-  useEffect(() => {
-    setProgress(null)
-    setElapsed(0)
-    if (jobId) {
-      const cached = _START_TIMES.get(jobId)
-      startedAtRef.current = cached ?? Date.now()
-      _START_TIMES.set(jobId, startedAtRef.current)
-      // Immediately compute elapsed so the first render isn't stuck at 00:00
-      setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000))
-    } else {
-      startedAtRef.current = null
-    }
-  }, [jobId])
-
-
-  // Poll progress while running
-    useEffect(() => {
-    clearInterval(pollRef.current)
-    if (!jobId || (!running && !paused)) return
-    if (!progressFetcher) {
-      // No fetcher passed — fail loudly rather than silently polling the
-      // wrong endpoint. Every caller must supply one.
-      console.warn('[InlineJobPanel] no progressFetcher prop — progress bar will not update')
-      return
-    }
-
-    let cancelled = false
-    let unknownCount = 0
-    const UNKNOWN_LIMIT = 5
-
-    const tick = async () => {
-      try {
-        const r = await progressFetcher(jobId)
-        if (cancelled) return
-        const data = r.data || {}
-        setProgress(data)
-
-        if (["completed", "failed", "cancelled"].includes(data.status)) {
-          clearInterval(pollRef.current)
-          return
-        }
-
-        if (data.status === "unknown") {
-          unknownCount += 1
-          if (unknownCount >= UNKNOWN_LIMIT) {
-            clearInterval(pollRef.current)
-          }
-        } else {
-          unknownCount = 0
-        }
-      } catch { /* swallow */ }
-    }
-
-    const startDelay = setTimeout(tick, 300)
-    pollRef.current = setInterval(tick, 2000)
-
-    return () => {
-      cancelled = true
-      clearTimeout(startDelay)
-      clearInterval(pollRef.current)
-    }
-  }, [jobId, running, paused, progressFetcher])
-
-  // Elapsed ticker
-  useEffect(() => {
-  if ((!running && !paused) || !startedAtRef.current) { clearInterval(tickRef.current); return }
-    tickRef.current = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000))
-    }, 1000)
-    return () => clearInterval(tickRef.current)
-  }, [running, paused, jobId])
-
-  // Prune start-time entry when the job reaches a terminal state
-  useEffect(() => {
-    if (!jobId) return
-    const terminal = cancelled || (progress?.status && ["completed", "failed", "cancelled"].includes(progress.status))
-    if (terminal) {
-      // Small grace period so a remount right at the end still finds the cached time
-      const t = setTimeout(() => _START_TIMES.delete(jobId), 30_000)
-      return () => clearTimeout(t)
-    }
-  }, [jobId, cancelled, progress?.status])
-
-  if (!jobId && !running) return null
-
+  
   // Derive authoritative status from the polled payload. The `running` prop
   // is only a hint; the backend's `status` field wins once we've seen it.
   const backendStatus = progress?.status || null
@@ -157,8 +72,7 @@ export default function InlineJobPanel({
 
   const meta = STATUS_META[uiStatus] || STATUS_META.running
 
-
-    // A percent is only meaningful when the backend has a real denominator
+  // A percent is only meaningful when the backend has a real denominator
   // (progress.total > 0). Before the first [PROGRESS] marker, `percent` may
   // be null OR the backend may have fallen through to a default of 100 —
   // both cases must render as "indeterminate", never as a full bar.
@@ -278,6 +192,101 @@ export default function InlineJobPanel({
       )}
     </div>
   ) : null
+
+
+
+  // Elapsed timer — ticks only while the panel's derived status is
+  // 'running'. Any other state (paused, cancelled, completed, failed) stops
+  // the interval on the next render. Deriving from `uiStatus` rather than
+  // the `running` prop ensures a job that failed without firing its SSE
+  // completion event still stops the timer the moment the poller reports a
+  // terminal backend status.
+  useEffect(() => {
+    clearInterval(tickRef.current)
+    if (uiStatus !== 'running' || !startedAtRef.current) return
+    tickRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000))
+    }, 1000)
+    return () => clearInterval(tickRef.current)
+  }, [uiStatus, jobId])
+
+  useEffect(() => {
+    setProgress(null)
+    setElapsed(0)
+    if (jobId) {
+      const cached = _START_TIMES.get(jobId)
+      startedAtRef.current = cached ?? Date.now()
+      _START_TIMES.set(jobId, startedAtRef.current)
+      // Immediately compute elapsed so the first render isn't stuck at 00:00
+      setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000))
+    } else {
+      startedAtRef.current = null
+    }
+  }, [jobId])
+
+
+  // Poll progress while running
+    useEffect(() => {
+    clearInterval(pollRef.current)
+    if (!jobId || (!running && !paused)) return
+    if (!progressFetcher) {
+      // No fetcher passed — fail loudly rather than silently polling the
+      // wrong endpoint. Every caller must supply one.
+      console.warn('[InlineJobPanel] no progressFetcher prop — progress bar will not update')
+      return
+    }
+
+    let cancelled = false
+    let unknownCount = 0
+    const UNKNOWN_LIMIT = 5
+
+    const tick = async () => {
+      try {
+        const r = await progressFetcher(jobId)
+        if (cancelled) return
+        const data = r.data || {}
+        setProgress(data)
+
+        if (["completed", "failed", "cancelled"].includes(data.status)) {
+          clearInterval(pollRef.current)
+          return
+        }
+
+        if (data.status === "unknown") {
+          unknownCount += 1
+          if (unknownCount >= UNKNOWN_LIMIT) {
+            clearInterval(pollRef.current)
+          }
+        } else {
+          unknownCount = 0
+        }
+      } catch { /* swallow */ }
+    }
+
+    const startDelay = setTimeout(tick, 300)
+    pollRef.current = setInterval(tick, 2000)
+
+    return () => {
+      cancelled = true
+      clearTimeout(startDelay)
+      clearInterval(pollRef.current)
+    }
+  }, [jobId, running, paused, progressFetcher])
+
+
+  // Prune start-time entry when the job reaches a terminal state
+  useEffect(() => {
+    if (!jobId) return
+    const terminal = cancelled || (progress?.status && ["completed", "failed", "cancelled"].includes(progress.status))
+    if (terminal) {
+      // Small grace period so a remount right at the end still finds the cached time
+      const t = setTimeout(() => _START_TIMES.delete(jobId), 30_000)
+      return () => clearTimeout(t)
+    }
+  }, [jobId, cancelled, progress?.status])
+
+
+  if (!jobId && !running) return null
 
   return (
     <div style={{
