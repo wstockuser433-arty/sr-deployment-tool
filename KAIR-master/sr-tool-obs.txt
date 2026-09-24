@@ -1,0 +1,2 @@
+Inference Section:
+1. Hitting browser refresh disappears the current job progress, InLineJobPanel, and the Run button stays inactive. LogConsole also defaults to orig state. (MAJOR)
