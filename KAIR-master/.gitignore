@@ -76,3 +76,6 @@ tmp/
 
 #model_zoo
 model_zoo/
+
+#workspace
+*.code-workspace
