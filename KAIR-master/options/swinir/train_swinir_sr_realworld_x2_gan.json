@@ -8,9 +8,9 @@
 
   , "path": {
     "root": "superresolution"  // "denoising" | "superresolution" | "dejpeg"
-    , "pretrained_netG": "superresolution/2xgan/models/150000_G.pth"  // path of pretrained model
-    , "pretrained_netD": "superresolution/2xgan/models/150000_D.pth"  // path of pretrained model
-	, "pretrained_netE": "superresolution/2xgan/models/150000_E.pth"  // path of pretrained model
+    , "pretrained_netG": null  // path of pretrained model
+    , "pretrained_netD": null  // path of pretrained model
+	, "pretrained_netE": null  // path of pretrained model
 	}
 
   , "datasets": {
