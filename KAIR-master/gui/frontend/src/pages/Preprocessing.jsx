@@ -1404,7 +1404,7 @@ function TileImageryForm({ onJobStart, runInFlight = false }) {
 
 export default function Preprocessing() {
   const [activeTab, setActiveTab] = useState(0)
-  const { jobs, setJobId: setCtxJobId } = useJobContext()
+  const { jobs, setJobId: setCtxJobId, hydrated } = useJobContext()
   const jobId = jobs['preprocessing']
   const setJobId = (id) => setCtxJobId('preprocessing', id)
   const [previewMap, setPreviewMap] = useState({})
@@ -1540,7 +1540,8 @@ export default function Preprocessing() {
         </div>
 
           <div style={{ display: activeTab === 0 ? 'block' : 'none' }}>
-          <div className="module-grid rise" style={{ animationDelay: '100ms' }}>
+          {hydrated ?
+            <div className="module-grid rise" style={{ animationDelay: '100ms' }}>
             <div className="col">
               <div className="animate-in">
                 <div style={{ marginBottom: 12 }}>
@@ -1626,9 +1627,12 @@ export default function Preprocessing() {
               )}
             </div>
           </div>
+            : <div className="card" style={{ color: 'var(--ink-3)', fontSize: 13 }}>Restoring session…</div>
+          }
         </div>
 
         <div style={{ display: activeTab === 1 ? 'block' : 'none' }}>
+          {hydrated ?
           <div className="module-grid rise" style={{ animationDelay: '100ms' }}>
             <div className="col">
               <div className="animate-in">
@@ -1710,9 +1714,12 @@ export default function Preprocessing() {
               )}
             </div>
           </div>
+           : <div className="card" style={{ color: 'var(--ink-3)', fontSize: 13 }}>Restoring session…</div>
+        }
         </div>
         {/* ── Compute Patches (Tile Imagery) ── */}
         <div style={{ display: activeTab === 2 ? 'block' : 'none' }}>
+          {hydrated ?
           <div className="module-grid rise" style={{ animationDelay: '100ms' }}>
             <div className="col">
               <div className="animate-in">
@@ -1781,14 +1788,20 @@ export default function Preprocessing() {
                 </CollapsibleSection>
               )}
             </div>
-          </div>
+          </div> 
+           : <div className="card" style={{ color: 'var(--ink-3)', fontSize: 13 }}>Restoring session…</div>
+        }
+          
         </div>
         <div style={{ display: activeTab === 3 ? 'block' : 'none' }}>
-          <div className="rise" style={{ animationDelay: '80ms' }}>
-            {hasClassResults && <ClassResultsPanel results={classResults} />}
-            {previewCount > 0 && <StepPreviewPanel previews={previewMap} />}
-            {!hasClassResults && previewCount === 0 && <StepPreviewPanel previews={{}} />}
-          </div>
+          {
+            hydrated ? <div className="rise" style={{ animationDelay: '80ms' }}>
+              {hasClassResults && <ClassResultsPanel results={classResults} />}
+              {previewCount > 0 && <StepPreviewPanel previews={previewMap} />}
+              {!hasClassResults && previewCount === 0 && <StepPreviewPanel previews={{}} />}
+            </div>
+             : <div className="card" style={{ color: 'var(--ink-3)', fontSize: 13 }}>Restoring session…</div>
+          }
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@ Manages long-running subprocess jobs (training, inference, preprocessing).
 Streams stdout/stderr as Server-Sent Events.
 """
 import asyncio
+from datetime import datetime, timezone
 import os
 import re
 import signal
@@ -16,6 +17,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import AsyncGenerator, Deque, Dict, Optional
+
 
 
 class JobStatus(str, Enum):
@@ -38,7 +40,7 @@ class Job:
     return_code: Optional[int] = None
     output_dir: Optional[str] = None  # set for jobs that write preview images (see preprocessing.py)
     meta: Optional[dict] = None       # arbitrary metadata (e.g. output_dir for raw inference)
-
+    started_at: Optional[str] = None       # ISO 8601 UTC, set when the subprocess launches
 
 # Global in-memory job store
 _jobs: Dict[str, Job] = {}
@@ -86,6 +88,7 @@ async def launch_job(job_id: str) -> None:
         raise ValueError(f"Job {job_id} not found")
 
     job.status = JobStatus.RUNNING
+    job.started_at = datetime.now(timezone.utc).isoformat() 
     env = {**os.environ}
 
     # On Windows, spawn the child in its own process group so that signals
@@ -307,8 +310,9 @@ def get_job_summary(job_id: str) -> Optional[dict]:
         "job_id":       job.job_id,
         "status":       job.status,
         "return_code":  job.return_code,
-        "logs":         list(job.logs)[-200:],  # last 200 lines for polling
+        "logs":         list(job.logs)[-200:],
         "meta":         job.meta,
+        "started_at":   job.started_at,        # ← new
     }
 
 

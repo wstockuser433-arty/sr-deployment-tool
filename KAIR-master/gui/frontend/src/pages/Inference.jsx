@@ -1612,7 +1612,7 @@ export default function Inference() {
   const [activeTab, setActiveTab] = useState(0)
   const [tasks, setTasks] = useState([])
   const [optionsFiles, setOptionsFiles] = useState([])
-  const { jobs, setJobId: setCtxJobId } = useJobContext()
+  const { jobs, setJobId: setCtxJobId, hydrated  } = useJobContext()
 
   useEffect(() => {
     listInferenceTasks().then(r => setTasks(r.data)).catch(() => { })
@@ -1654,14 +1654,23 @@ export default function Inference() {
           ))}
         </div>
 
+        {/* Keep all tabs mounted to preserve running jobs and form state.
+            But wait for hydration before showing them, so a stale persisted ID
+            is not briefly rendered with the wrong status. */}
         <div style={{ display: activeTab === 0 ? 'block' : 'none' }}>
-          <PatchedTab tasks={tasks} optionsFiles={optionsFiles} {...makeJobProps('inference-patched')} />
+          {hydrated
+            ? <PatchedTab tasks={tasks} optionsFiles={optionsFiles} {...makeJobProps('inference-patched')} />
+            : <div className="card" style={{ color: 'var(--ink-3)', fontSize: 13 }}>Restoring session…</div>}
         </div>
         <div style={{ display: activeTab === 1 ? 'block' : 'none' }}>
-          <RawPairedTab tasks={tasks} optionsFiles={optionsFiles} {...makeJobProps('inference-raw')} />
+          {hydrated
+            ? <RawPairedTab tasks={tasks} optionsFiles={optionsFiles} {...makeJobProps('inference-raw')} />
+            : <div className="card" style={{ color: 'var(--ink-3)', fontSize: 13 }}>Restoring session…</div>}
         </div>
         <div style={{ display: activeTab === 2 ? 'block' : 'none' }}>
-          <LROnlyTab tasks={tasks} optionsFiles={optionsFiles} {...makeJobProps('inference-lr')} />
+          {hydrated
+            ? <LROnlyTab tasks={tasks} optionsFiles={optionsFiles} {...makeJobProps('inference-lr')} />
+            : <div className="card" style={{ color: 'var(--ink-3)', fontSize: 13 }}>Restoring session…</div>}
         </div>
       </div>
     </div>

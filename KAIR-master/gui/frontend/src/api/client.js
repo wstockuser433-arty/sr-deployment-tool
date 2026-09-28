@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const api = axios.create({
+export const api = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
 })
@@ -29,7 +29,7 @@ export const getInferenceStatus = (jobId) => api.get(`/inference/status/${jobId}
 export const startRawPairedInference = (data) => api.post('/inference/raw-paired/start', data)
 export const startLROnlyInference = (data) => api.post('/inference/lr-only/start', data)
 export const getRawInferenceMetrics = (jobId) => api.get(`/inference/raw/metrics/${jobId}`)
-export const getRawResultImageUrl = (jobId, filename) => `/api/inference/raw/result/${jobId}/${filename}`
+export const getRawResultImageUrl = (jobId, filename) => `/inference/raw/result/${jobId}/${filename}`
 export const getImageInfo = (path) => api.get('/inference/image-info', { params: { path } })
 export const compareImages = (hr, lr) => api.get('/inference/image-compare', { params: { hr, lr } })
 
@@ -58,11 +58,11 @@ export const listDirectory = (path = '', mode = 'dirs', extensions = '') =>
   api.get('/fs/list', { params: { path, mode, extensions } })
 
 /** Returns a URL string (not a promise) for use directly in <img src=...> */
-export const fsImageUrl = (path) => `/api/fs/image?path=${encodeURIComponent(path)}`
+export const fsImageUrl = (path) => `/fs/image?path=${encodeURIComponent(path)}`
 
 // ── SSE helper (returns EventSource) ─────────────────────────────────────────
 export function openLogStream(domain, jobId, onLine, onStatus) {
-  const es = new EventSource(`/api/${domain}/stream/${jobId}`)
+  const es = new EventSource(`/${domain}/stream/${jobId}`)
   es.onmessage = (e) => onLine(e.data)
   es.addEventListener('status', (e) => {
     // Terminal status — close the stream

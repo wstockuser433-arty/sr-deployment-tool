@@ -210,19 +210,21 @@ export default function InlineJobPanel({
     return () => clearInterval(tickRef.current)
   }, [uiStatus, jobId])
 
+  // After the first progress response arrives, if the backend reports a
+// started_at that predates our local estimate, adopt it. This is what
+// makes the timer survive a page refresh: on remount, `startedAtRef` was
+// set to Date.now(), which is 30 minutes AFTER the real start, and the
+// backend's timestamp corrects it.
   useEffect(() => {
-    setProgress(null)
-    setElapsed(0)
-    if (jobId) {
-      const cached = _START_TIMES.get(jobId)
-      startedAtRef.current = cached ?? Date.now()
-      _START_TIMES.set(jobId, startedAtRef.current)
-      // Immediately compute elapsed so the first render isn't stuck at 00:00
-      setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000))
-    } else {
-      startedAtRef.current = null
+    if (!progress?.started_at) return
+    const backendStarted = Date.parse(progress.started_at)
+    if (Number.isNaN(backendStarted)) return
+    if (startedAtRef.current == null || backendStarted < startedAtRef.current) {
+      startedAtRef.current = backendStarted
+      _START_TIMES.set(jobId, backendStarted)
+      setElapsed(Math.floor((Date.now() - backendStarted) / 1000))
     }
-  }, [jobId])
+  }, [progress?.started_at, jobId])
 
 
   // Poll progress while running

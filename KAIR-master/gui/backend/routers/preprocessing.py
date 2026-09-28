@@ -722,6 +722,7 @@ def get_preprocessing_progress(job_id: str):
         "last_line": last_line,
         "scenes_started": tile_scenes_started,
         "scenes_done": tile_scenes_done,
+        "started_at": summary.get("started_at"),
     }
 
 

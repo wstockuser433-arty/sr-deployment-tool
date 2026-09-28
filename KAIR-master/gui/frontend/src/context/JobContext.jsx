@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
-// import api from '../api/client'   // ← adjust to your axios instance / fetch helper
+import { api } from '../api/client'
 
 const JobContext = createContext(null)
 
@@ -10,11 +10,11 @@ const DOMAINS = ['training', 'preprocessing', 'inference-patched', 'inference-ra
 // Use the actual route you expose; if a domain has no status endpoint, map it to null
 // and the reconciler will treat all persisted IDs for that domain as stale.
 const STATUS_ENDPOINTS = {
-  'training':           (id) => `/api/training/status/${id}`,
-  'preprocessing':      (id) => `/api/preprocessing/status/${id}`,
-  'inference-patched':  (id) => `/api/inference/status/${id}`,
-  'inference-raw':      (id) => `/api/inference/status/${id}`,
-  'inference-lr':       (id) => `/api/inference/status/${id}`,
+  'training':           (id) => `/training/status/${id}`,
+  'preprocessing':      (id) => `/preprocessing/status/${id}`,
+  'inference-patched':  (id) => `/inference/status/${id}`,
+  'inference-raw':      (id) => `/inference/status/${id}`,
+  'inference-lr':       (id) => `/inference/status/${id}`,
 }
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled'])
@@ -39,39 +39,41 @@ export function JobProvider({ children }) {
 
   // ── Reconcile persisted IDs against the backend, once, on mount ──
   useEffect(() => {
-    if (reconciledRef.current) return
-    reconciledRef.current = true
+  let cancelled = false
 
+  const reconcile = async () => {
     const initial = loadJobs()
     const checks = DOMAINS.map(async (domain) => {
       const id = initial[domain]
       if (!id) return [domain, null]
-
       const build = STATUS_ENDPOINTS[domain]
-      if (!build) return [domain, null]  // no way to validate → drop
-
+      if (!build) return [domain, null]
       try {
         const r = await api.get(build(id))
         const status = r?.data?.status
-        if (!status || TERMINAL.has(status)) {
-          // Job is done, dead, or unreachable → clear it. Don't leave a stale
-          // "running" pill on the page after a restart.
-          return [domain, null]
-        }
-        // Still alive on the backend → keep it
+        if (status && TERMINAL.has(status)) return [domain, null]
         return [domain, id]
-      } catch {
-        return [domain, null]
+      } catch (err) {
+        if (err?.response?.status === 404) return [domain, null]
+        return [domain, id]
       }
     })
+    const pairs = await Promise.all(checks)
+    if (cancelled) return
+    const next = Object.fromEntries(pairs)
+    setJobs(next)
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
+    setHydrated(true)
+  }
 
-    Promise.all(checks).then((pairs) => {
-      const next = Object.fromEntries(pairs)
-      setJobs(next)
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
-      setHydrated(true)
-    })
-  }, [])
+  reconcile()
+  const onFocus = () => reconcile()
+  window.addEventListener('focus', onFocus)
+  return () => {
+    cancelled = true
+    window.removeEventListener('focus', onFocus)
+  }
+}, [])
 
   // Persist after the first reconcile, not before (avoids clobbering with stale data)
   useEffect(() => {

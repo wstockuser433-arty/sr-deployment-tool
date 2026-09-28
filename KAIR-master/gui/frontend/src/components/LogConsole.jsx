@@ -94,6 +94,7 @@ export default function LogConsole({
   const [copied, setCopied] = useState(false)
   const [previews, setPreviews] = useState({})
   const [lightbox, setLightbox] = useState(null)
+  const [jobStatus, setJobStatus] = useState('running')
   const logRef = useRef(null)
   const esRef = useRef(null)
   const previewsRef = useRef({})
@@ -107,6 +108,29 @@ export default function LogConsole({
   const isLiveStatus = (s) => s === 'running' || s === 'pending'
   const { elapsed, reset: resetTimer } = useElapsedTimer(isLiveStatus(status))
 
+  useEffect(() => {
+    // Reset all per-job state on any job change. Without this, a stale
+    // 'failed' status from a previous job survives the ID swap and shows up
+    // as "failed / 0 lines" on a job that is actually running.
+    setJobStatus('running')
+    setLines([])
+
+    if (!jobId) return
+
+    const es = new EventSource(`/api/${domain}/stream/${jobId}`)
+    es.onmessage = (e) => setLines((prev) => [...prev, e.data])
+    es.addEventListener('status', (e) => {
+      setJobStatus(e.data)
+      es.close()
+    })
+    es.addEventListener('status_update', (e) => {
+      setJobStatus(e.data)
+    })
+
+    return () => es.close()
+  }, [jobId, domain])
+
+  
   useEffect(() => {
     if (!jobId) return
     setLines([])

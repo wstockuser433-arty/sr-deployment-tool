@@ -411,9 +411,9 @@ def get_inference_progress(job_id: str):
         "current": current,
         "total": total,
         "percent": pct,
-        "output_dir": summary.get("output_dir")
-                      or (summary.get("meta") or {}).get("output_dir"),
+        "output_dir": summary.get("output_dir") or (summary.get("meta") or {}).get("output_dir"),
         "last_line": last_line,
+        "started_at": summary.get("started_at"),    # ← new
     }
 
 
