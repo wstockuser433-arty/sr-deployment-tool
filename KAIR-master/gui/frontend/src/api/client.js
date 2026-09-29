@@ -29,7 +29,12 @@ export const getInferenceStatus = (jobId) => api.get(`/inference/status/${jobId}
 export const startRawPairedInference = (data) => api.post('/inference/raw-paired/start', data)
 export const startLROnlyInference = (data) => api.post('/inference/lr-only/start', data)
 export const getRawInferenceMetrics = (jobId) => api.get(`/inference/raw/metrics/${jobId}`)
-export const getRawResultImageUrl = (jobId, filename) => `/inference/raw/result/${jobId}/${filename}`
+
+// NOTE: this is returned as a URL string for <img src>, NOT passed to axios.
+// It must include the /api prefix so Vite's dev proxy forwards it to the backend.
+export const getRawResultImageUrl = (jobId, filename) =>
+  `/api/inference/raw/result/${jobId}/${filename}`
+
 export const getImageInfo = (path) => api.get('/inference/image-info', { params: { path } })
 export const compareImages = (hr, lr) => api.get('/inference/image-compare', { params: { hr, lr } })
 
@@ -57,12 +62,13 @@ export const startTileImagery = (payload) =>
 export const listDirectory = (path = '', mode = 'dirs', extensions = '') =>
   api.get('/fs/list', { params: { path, mode, extensions } })
 
-/** Returns a URL string (not a promise) for use directly in <img src=...> */
-export const fsImageUrl = (path) => `/fs/image?path=${encodeURIComponent(path)}`
+/** Returns a URL string (not a promise) for use directly in <img src=...>.
+ *  Must include the /api prefix so Vite's dev proxy forwards it. */
+export const fsImageUrl = (path) => `/api/fs/image?path=${encodeURIComponent(path)}`
 
 // ── SSE helper (returns EventSource) ─────────────────────────────────────────
 export function openLogStream(domain, jobId, onLine, onStatus) {
-  const es = new EventSource(`/${domain}/stream/${jobId}`)
+  const es = new EventSource(`/api/${domain}/stream/${jobId}`)
   es.onmessage = (e) => onLine(e.data)
   es.addEventListener('status', (e) => {
     // Terminal status — close the stream
@@ -74,8 +80,14 @@ export function openLogStream(domain, jobId, onLine, onStatus) {
     onStatus(e.data)
   })
   es.onerror = () => {
-    onStatus('failed')
-    es.close()
+    // Do NOT synthesise a 'failed' status here. The browser fires `error`
+    // on every temporary disconnect, and treating that as a job failure
+    // causes the "live job shows failed" bug. Let the browser reconnect;
+    // if the stream is truly dead the terminal `status` event will never
+    // arrive and the parent's polling endpoint will surface the real state.
+    if (es.readyState === EventSource.CLOSED) {
+      es.close()
+    }
   }
   return es
 }

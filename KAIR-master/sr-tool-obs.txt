@@ -1,2 +1,3 @@
 Inference Section:
 1. Hitting browser refresh disappears the current job progress, InLineJobPanel, and the Run button stays inactive. LogConsole also defaults to orig state. (MAJOR)
+2. To explore and implement a fast or efficient Image Viewer for large SR images. Preferably browser based. 

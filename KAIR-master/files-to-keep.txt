@@ -1,0 +1,99 @@
+I’ve narrowed it to the actual workflow files and data folders, and I’m mapping them to each use case so you can keep exactly what each run needs.
+
+## What to keep for each workflow
+
+This repo is organized as a stack of workflows, not one monolithic app. The main project flow is described in `README.md:15-48`, and the visual helper is documented in `USAGE.md:665-698`.
+
+| Use case | Must keep | Optional / not required |
+|---|---|---|
+| 1. Training SwinIR | `main_train_swinir.py`, `main_train_swinir_gan.py`, `models`, `data`, `utils`, `options`, `trainsets`, `superresolution` | `compare_images_side_by_side.py`, analyze_image_stats.py, `kernels` unless using kernel-based degradation models |
+| 2. Testing SR outputs | `main_test_swinir_config.py`, `raw_inference.py`, `models`, `utils`, `testsets`, `superresolution` | `compare_images_side_by_side.py`, analyze_image_stats.py |
+| 3. Preprocessing imagery | `pleaides_preprocessing`, `preprocessing_pipeline`, `data` support utilities, maybe `trainsets`/`testsets` after generation | `models`, `main_train_swinir.py`, GUI files if not using the UI |
+| 4. Running the GUI | `gui`, `backend`, `frontend`, plus the core training/testing folders the GUI calls | analyze_image_stats.py, `compare_images_side_by_side.py` |
+
+---
+
+## 1) Training SwinIR
+Keep:
+- `main_train_swinir.py`
+- `main_train_swinir_gan.py`
+- `swinir`
+- `data`
+- `models`
+- `utils`
+- `trainsets`
+- `superresolution`
+
+These are the actual training assets. The repo docs clearly present these as the main training entry points in `README.md:20-48`.
+
+Optional:
+- `kernels` is only needed if you are using degradation-driven or kernel-based training variants such as SRMD/USRNet-style data loaders.
+- `compare_images_side_by_side.py` is just post-hoc visual QA.
+- analyze_image_stats.py is just dataset inspection.
+
+---
+
+## 2) Testing SR outputs
+Keep:
+- `main_test_swinir_config.py`
+- `raw_inference.py`
+- `models`
+- `utils`
+- `testsets`
+- `superresolution`
+
+This is the actual evaluation/testing flow. The config script in `main_test_swinir_config.py:20-35` points to LR/HR/SR directories and computes metrics. That is the test path.
+
+Optional:
+- `compare_images_side_by_side.py` for side-by-side visual comparison
+- analyze_image_stats.py for data sanity checks
+
+---
+
+## 3) Preprocessing imagery
+Keep:
+- `pleaides_preprocessing`
+- `preprocessing_pipeline`
+- whichever dataset folder you are producing into, typically `trainsets` and/or `testsets`
+
+This is the raw-data preparation pipeline, not the SR model itself. The docs mention it as the first major step in `README.md:15-30`.
+
+Optional:
+- `models` and training scripts are not needed just to preprocess raw imagery.
+- `compare_images_side_by_side.py` is not part of preprocessing.
+
+---
+
+## 4) Running the GUI
+Keep:
+- `gui`
+- `backend`
+- `frontend`
+- plus the underlying core folders the GUI invokes for model training/testing/preprocessing
+
+The GUI wraps the same project capabilities; it is not a standalone project. It depends on the same model/data utilities.
+
+Optional:
+- analyze_image_stats.py
+- `compare_images_side_by_side.py`
+
+These are manual inspection helpers, not GUI requirements.
+
+---
+
+## Short version
+For each workflow, the core required set is:
+
+1. Training SwinIR  
+   Keep: `main_train_swinir.py`, `models`, `data`, `utils`, `options`, `trainsets`
+
+2. Testing SR outputs  
+   Keep: `main_test_swinir_config.py`, `raw_inference.py`, `models`, `testsets`
+
+3. Preprocessing imagery  
+   Keep: `pleaides_preprocessing`, `preprocessing_pipeline`
+
+4. GUI  
+   Keep: `gui`, plus the underlying training/testing/preprocessing modules it calls
+
+If you want, I can turn this into a “clean minimal backup set” for your exact machine, such as “keep only the folders needed for training + evaluation, without the optional QA scripts.”
